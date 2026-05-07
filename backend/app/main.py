@@ -12,10 +12,24 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .chart import render_chart_b64
+from .context import (
+    fetch_correlation_matrix,
+    fetch_fear_greed,
+    fetch_higher_tf_trends,
+    fetch_news_for_coin,
+)
 from .data import SYMBOL_MAP, fetch_ohlcv
 from .indicators import compute_all
 from .llm import analyze
-from .schemas import AnalyzeRequest, AnalyzeResponse
+from .schemas import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    ContextResponse,
+    CorrelationMatrix,
+    FearGreed,
+    HtfTrend,
+    NewsItem,
+)
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -64,7 +78,18 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
 
     ind = compute_all(df)
     summary = ind.summary()
-    analysis = analyze(req.coin, req.timeframe, summary)
+
+    # Auxiliary context — none of these should fail the request.
+    htf_raw = fetch_higher_tf_trends(req.coin, req.timeframe)
+    fng_raw = fetch_fear_greed()
+    news_raw = fetch_news_for_coin(req.coin, limit=5)
+
+    extra_context = {
+        "htf_trends": htf_raw,
+        "fear_greed": fng_raw,
+        "news_titles": [n.get("title", "") for n in news_raw][:5],
+    }
+    analysis = analyze(req.coin, req.timeframe, summary, extra_context=extra_context)
     chart_b64 = render_chart_b64(req.coin, req.timeframe, ind, signal=analysis.signal)
 
     return AnalyzeResponse(
@@ -72,6 +97,19 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         chart_png_b64=chart_b64,
         indicators=summary,
         last_price=float(summary["close"]),
+        htf_trends=[HtfTrend(**h) for h in htf_raw],
+        news=[NewsItem(**n) for n in news_raw],
+        fear_greed=FearGreed(**fng_raw) if fng_raw else None,
+    )
+
+
+@app.get("/context", response_model=ContextResponse)
+def context_endpoint() -> ContextResponse:
+    fng = fetch_fear_greed()
+    corr = fetch_correlation_matrix(window_days=30)
+    return ContextResponse(
+        fear_greed=FearGreed(**fng) if fng else None,
+        correlation=CorrelationMatrix(**corr) if corr else None,
     )
 
 

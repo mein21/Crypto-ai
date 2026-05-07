@@ -38,8 +38,47 @@ class Analysis(BaseModel):
     disclaimer: str = "Это не финансовый совет. Крипторынок крайне волатилен."
 
 
+class HtfTrend(BaseModel):
+    tf: str
+    trend: str
+    rsi: float
+    rsi_state: str
+    macd_state: str
+    change_pct_30bars: float
+    close: float
+
+
+class NewsItem(BaseModel):
+    title: str
+    url: str
+    source: str = ""
+    ts: int = 0
+    image: str = ""
+
+
+class FearGreed(BaseModel):
+    value: int
+    classification: str
+    timestamp: Optional[str] = None
+
+
+class CorrelationMatrix(BaseModel):
+    labels: list[str]
+    matrix: list[list[float]]
+    window_days: int
+    n_observations: int
+
+
 class AnalyzeResponse(BaseModel):
     analysis: Analysis
     chart_png_b64: str
     indicators: dict
     last_price: float
+    htf_trends: list[HtfTrend] = Field(default_factory=list)
+    news: list[NewsItem] = Field(default_factory=list)
+    fear_greed: Optional[FearGreed] = None
+
+
+class ContextResponse(BaseModel):
+    fear_greed: Optional[FearGreed] = None
+    correlation: Optional[CorrelationMatrix] = None
