@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "crypto-ai-backend"
+version = "0.1.0"
+description = "Backend for crypto AI analyzer with annotated chart"
+authors = ["mein21 <hostnameq@gmail.com>"]
+readme = "README.md"
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = ">=0.115.0"
+uvicorn = { version = ">=0.32.0", extras = ["standard"] }
+pydantic = ">=2.9.0"
+ccxt = ">=4.4.0"
+pandas = ">=2.2.0"
+numpy = ">=1.26.0,<2.3.0"
+ta = ">=0.11.0"
+mplfinance = ">=0.12.10b0"
+matplotlib = ">=3.8.0"
+google-generativeai = ">=0.8.3"
+python-dotenv = ">=1.0.1"
+httpx = ">=0.27.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

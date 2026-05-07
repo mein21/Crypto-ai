@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Crypto AI Analyzer</title>
+    <meta name="description" content="ИИ-анализ криптовалют: график с разметкой и торговая идея в один клик" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <div class="brand">
+          <div class="logo">⌬</div>
+          <div>
+            <h1>Crypto AI Analyzer</h1>
+            <p class="subtitle">
+              Тех. анализ + ИИ-интерпретация в один клик. Свечи, EMA, RSI, MACD,
+              уровни поддержки/сопротивления и торговая идея с уровнями входа,
+              стопа и тейков.
+            </p>
+          </div>
+        </div>
+        <div class="status" id="status">
+          <span class="dot" id="status-dot"></span>
+          <span id="status-text">Подключение…</span>
+        </div>
+      </header>
+
+      <section class="controls card">
+        <div class="control-group">
+          <label>Монета</label>
+          <div class="chip-row" id="coin-row"></div>
+        </div>
+        <div class="control-group">
+          <label>Таймфрейм</label>
+          <div class="chip-row" id="tf-row"></div>
+        </div>
+        <button class="analyze-btn" id="analyze-btn">
+          <span class="btn-content">
+            <span class="btn-icon">⚡</span>
+            <span>Анализ</span>
+          </span>
+          <span class="btn-spinner" hidden>
+            <span class="spinner"></span>
+            <span>Анализирую…</span>
+          </span>
+        </button>
+      </section>
+
+      <section id="error-box" class="error-box card" hidden></section>
+
+      <section id="result" class="result" hidden>
+        <div class="card chart-card">
+          <div class="chart-header">
+            <div>
+              <h2 id="result-title">—</h2>
+              <p class="muted" id="result-subtitle">—</p>
+            </div>
+            <div class="header-actions">
+              <a id="chart-download" class="download-link" download>Скачать PNG</a>
+              <div class="signal-badge" id="signal-badge">—</div>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <img id="chart-img" alt="Annotated chart" />
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <h3>Торговая идея</h3>
+            <div class="kv" id="trade-idea"></div>
+            <p class="rationale muted" id="rationale"></p>
+          </div>
+
+          <div class="card">
+            <h3>Индикаторы</h3>
+            <div class="kv" id="indicators-kv"></div>
+          </div>
+
+          <div class="card">
+            <h3>Уровни</h3>
+            <div class="levels" id="levels-list"></div>
+          </div>
+
+          <div class="card">
+            <h3>Комментарий ИИ</h3>
+            <p id="narrative"></p>
+            <h4>Риски</h4>
+            <ul id="risks"></ul>
+          </div>
+        </div>
+
+        <p class="disclaimer" id="disclaimer">—</p>
+      </section>
+
+      <footer class="footer">
+        <p>
+          Источник котировок: OKX / KuCoin / Bybit / Coinbase (fallback). Анализ:
+          Groq Llama 3.3 / Google Gemini. Без автоматического исполнения сделок.
+        </p>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
