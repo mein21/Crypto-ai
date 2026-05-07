@@ -69,6 +69,45 @@ class CorrelationMatrix(BaseModel):
     n_observations: int
 
 
+class BtcFees(BaseModel):
+    fastest: int = 0
+    half_hour: int = 0
+    hour: int = 0
+    economy: int = 0
+    minimum: int = 0
+
+
+class BtcOnchain(BaseModel):
+    fees_sat_per_vb: BtcFees
+    mempool_count: int
+    mempool_vsize_mb: float
+    mempool_total_fee_btc: float
+    block_height: int
+    hashrate_eh: Optional[float] = None
+    difficulty_progress_pct: float
+    difficulty_change_pct: float
+    blocks_to_retarget: int
+
+
+class EthGas(BaseModel):
+    slow: float
+    standard: float
+    fast: float
+
+
+class EthOnchain(BaseModel):
+    gas_gwei: EthGas
+    base_fee_gwei: float
+    current_gas_gwei: float
+    block_number: int
+    congestion_pct: Optional[float] = None
+
+
+class Onchain(BaseModel):
+    btc: Optional[BtcOnchain] = None
+    eth: Optional[EthOnchain] = None
+
+
 class AnalyzeResponse(BaseModel):
     analysis: Analysis
     chart_png_b64: str
@@ -77,6 +116,7 @@ class AnalyzeResponse(BaseModel):
     htf_trends: list[HtfTrend] = Field(default_factory=list)
     news: list[NewsItem] = Field(default_factory=list)
     fear_greed: Optional[FearGreed] = None
+    onchain: Optional[Onchain] = None
 
 
 class ContextResponse(BaseModel):

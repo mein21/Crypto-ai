@@ -214,11 +214,83 @@
     });
   }
 
+  function congestionLevel(pct) {
+    if (pct == null) return { tone: "muted", label: "—" };
+    if (pct >= 80) return { tone: "short", label: "перегружено" };
+    if (pct >= 50) return { tone: "warn", label: "повышенная" };
+    return { tone: "long", label: "спокойно" };
+  }
+
+  function gasLevel(gwei) {
+    if (gwei == null) return { tone: "muted", label: "—" };
+    if (gwei >= 50) return { tone: "short", label: "высокий" };
+    if (gwei >= 15) return { tone: "warn", label: "средний" };
+    return { tone: "long", label: "низкий" };
+  }
+
+  function btcFeeLevel(satvb) {
+    if (satvb == null) return { tone: "muted", label: "—" };
+    if (satvb >= 50) return { tone: "short", label: "высокие" };
+    if (satvb >= 15) return { tone: "warn", label: "средние" };
+    return { tone: "long", label: "спокойные" };
+  }
+
+  function renderOnchain(coin, onchain) {
+    const card = $("onchain-card");
+    const grid = $("onchain-grid");
+    grid.innerHTML = "";
+    if (!onchain) {
+      card.hidden = true;
+      return;
+    }
+    const tile = (label, value, sub, tone) => {
+      const el = document.createElement("div");
+      el.className = "onchain-tile " + (tone || "");
+      el.innerHTML = `
+        <div class="onchain-label">${label}</div>
+        <div class="onchain-value">${value}</div>
+        <div class="onchain-sub">${sub || ""}</div>
+      `;
+      grid.appendChild(el);
+    };
+    if (coin === "BTC" && onchain.btc) {
+      const b = onchain.btc;
+      $("onchain-title").textContent = "Он-чейн · Bitcoin";
+      $("onchain-source").textContent = "Источник: mempool.space · обновляется каждые 3 мин";
+      const fee = b.fees_sat_per_vb || {};
+      const lvl = btcFeeLevel(fee.fastest);
+      tile("Комиссии (sat/vB)", `${fee.fastest}/${fee.half_hour}/${fee.hour}`, `fastest · 30 min · 1 h · ${lvl.label}`, lvl.tone);
+      tile("Мемпул", `${b.mempool_count.toLocaleString("ru-RU")} tx`, `${b.mempool_vsize_mb} MB · ${b.mempool_total_fee_btc} BTC fee`, "");
+      tile("Хэшрейт", b.hashrate_eh != null ? `${b.hashrate_eh} EH/s` : "—", "среднее за 3 дня", "long");
+      const sign = b.difficulty_change_pct >= 0 ? "+" : "";
+      tile("Сложность", `${b.difficulty_progress_pct}%`, `до ретаргета ${b.blocks_to_retarget} блоков · ${sign}${b.difficulty_change_pct}%`, b.difficulty_change_pct >= 0 ? "long" : "short");
+      tile("Высота блока", b.block_height.toLocaleString("ru-RU"), "последний блок BTC", "");
+      card.hidden = false;
+      return;
+    }
+    if (coin === "ETH" && onchain.eth) {
+      const e = onchain.eth;
+      $("onchain-title").textContent = "Он-чейн · Ethereum";
+      $("onchain-source").textContent = "Источник: публичный JSON-RPC · обновляется каждые 2 мин";
+      const gas = e.gas_gwei || {};
+      const gl = gasLevel(gas.standard);
+      tile("Газ (gwei)", `${gas.slow} / ${gas.standard} / ${gas.fast}`, `slow · standard · fast · ${gl.label}`, gl.tone);
+      tile("Base fee", `${e.base_fee_gwei} gwei`, "EIP-1559 базовая ставка", "");
+      const cl = congestionLevel(e.congestion_pct);
+      tile("Загрузка блоков", e.congestion_pct != null ? `${e.congestion_pct}%` : "—", `средняя за 10 блоков · ${cl.label}`, cl.tone);
+      tile("Высота блока", e.block_number.toLocaleString("ru-RU"), "последний блок ETH", "");
+      card.hidden = false;
+      return;
+    }
+    card.hidden = true;
+  }
+
   function renderResult(resp) {
-    const { analysis, chart_png_b64, indicators, last_price, htf_trends, news, fear_greed } = resp;
+    const { analysis, chart_png_b64, indicators, last_price, htf_trends, news, fear_greed, onchain } = resp;
     $("result").hidden = false;
     renderHtfStrip(htf_trends);
     renderNews(news);
+    renderOnchain(analysis.coin, onchain);
     if (fear_greed) {
       renderFearGreed(fear_greed);
       $("market-context").hidden = false;

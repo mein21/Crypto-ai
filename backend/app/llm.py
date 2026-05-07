@@ -76,11 +76,33 @@ def _build_user_prompt(coin: str, timeframe: str, summary: dict, extra: dict | N
         news = [t for t in (extra.get("news_titles") or []) if t]
         if news:
             parts.append("\nСвежие заголовки новостей:\n- " + "\n- ".join(news[:5]))
+        onchain = extra.get("onchain") or {}
+        coin = extra.get("coin", "")
+        if onchain and coin == "BTC":
+            fees = onchain.get("fees_sat_per_vb", {})
+            parts.append(
+                "\nОн-чейн (Bitcoin):\n"
+                f"  • Комиссии sat/vB: fastest {fees.get('fastest')}, halfHour {fees.get('half_hour')}, hour {fees.get('hour')}, economy {fees.get('economy')}\n"
+                f"  • Мемпул: {onchain.get('mempool_count')} tx, {onchain.get('mempool_vsize_mb')} MB\n"
+                f"  • Хэшрейт: {onchain.get('hashrate_eh')} EH/s\n"
+                f"  • Прогресс эпохи сложности: {onchain.get('difficulty_progress_pct')}% (расчётное изменение {onchain.get('difficulty_change_pct')}%)\n"
+                f"  • Высота блока: {onchain.get('block_height')}"
+            )
+        if onchain and coin == "ETH":
+            gas = onchain.get("gas_gwei", {})
+            parts.append(
+                "\nОн-чейн (Ethereum):\n"
+                f"  • Газ gwei: slow {gas.get('slow')}, standard {gas.get('standard')}, fast {gas.get('fast')}\n"
+                f"  • Base fee: {onchain.get('base_fee_gwei')} gwei\n"
+                f"  • Загрузка блоков (10 блоков): {onchain.get('congestion_pct')}%\n"
+                f"  • Блок: {onchain.get('block_number')}"
+            )
     parts.append(
         "\nУчти контекст старших ТФ (если они идут против анализируемого ТФ — снижай уверенность),"
-        " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность) и заголовки новостей"
-        " (упомяни их в narrative, если они существенны). Сделай анализ и торговую идею."
-        " Ответь ТОЛЬКО JSON по указанной схеме."
+        " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность), заголовки новостей"
+        " и он-чейн метрики (для BTC: высокие комиссии и забитый мемпул — признак ажиотажа; низкие — спокойствия;"
+        " для ETH: газ выше 50 gwei — высокий спрос, ниже 15 — затишье). Упомяни их в narrative, если существенны."
+        " Сделай анализ и торговую идею. Ответь ТОЛЬКО JSON по указанной схеме."
     )
     return "\n".join(parts)
 
