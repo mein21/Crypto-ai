@@ -40,7 +40,33 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("crypto-ai")
 
-app = FastAPI(title="Crypto AI Analyzer", version="0.1.0")
+from .autotrade.config import AutoTradeConfig  # noqa: E402
+from .autotrade.crypto_keys import KeyVault  # noqa: E402
+from .autotrade.routes import _bind as autotrade_router  # noqa: E402
+from .autotrade import scheduler as autotrade_scheduler  # noqa: E402
+from .autotrade import store as autotrade_store  # noqa: E402
+
+autotrade_cfg = AutoTradeConfig.from_env()
+
+from contextlib import asynccontextmanager  # noqa: E402
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    if autotrade_cfg.enabled:
+        try:
+            autotrade_store.init_db(autotrade_cfg.db_path)
+            vault = KeyVault(autotrade_cfg.master_key)
+            autotrade_scheduler.start(autotrade_cfg, vault)
+            log.info("autotrade enabled (db=%s)", autotrade_cfg.db_path)
+        except Exception as e:  # noqa: BLE001
+            log.error("autotrade boot failed: %s", e)
+    yield
+    if autotrade_cfg.enabled:
+        await autotrade_scheduler.shutdown()
+
+
+app = FastAPI(title="Crypto AI Analyzer", version="0.1.0", lifespan=_lifespan)
 
 origins = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
@@ -52,6 +78,11 @@ app.add_middleware(
 )
 
 
+if autotrade_cfg.enabled:
+    app.include_router(autotrade_router(autotrade_cfg))
+    log.info("autotrade routes mounted")
+
+
 @app.get("/healthz")
 def healthz() -> dict:
     return {
@@ -60,6 +91,24 @@ def healthz() -> dict:
             "groq": bool(os.getenv("GROQ_API_KEY", "").strip()),
             "gemini": bool(os.getenv("GEMINI_API_KEY", "").strip()),
         },
+        "autotrade": {
+            "enabled": autotrade_cfg.enabled,
+            "scheduler_running": autotrade_scheduler.get_scheduler() is not None,
+        },
+    }
+
+
+@app.get("/config")
+def public_config() -> dict:
+    """Public client config — exposed to frontend so it knows where the worker lives.
+
+    On Vercel the worker URL is configured via the WORKER_URL env var (set in
+    Vercel project settings). Worker-side it returns its own origin so that
+    embed-tests work even without a Vercel.
+    """
+    return {
+        "worker_url": os.getenv("WORKER_URL", "").strip() or None,
+        "autotrade_local": autotrade_cfg.enabled,
     }
 
 
