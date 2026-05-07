@@ -9,3 +9,7 @@ matplotlib>=3.8.0
 google-generativeai>=0.8.3
 python-dotenv>=1.0.1
 httpx>=0.27.0
+# autotrade worker — only loaded when AUTOTRADE_ENABLED=1
+pybit>=5.7.0
+APScheduler>=3.10.4
+cryptography>=43.0.0

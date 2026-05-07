@@ -556,6 +556,263 @@
     });
   }
 
+  // =========================================================================
+  // Autotrade panel
+  // =========================================================================
+  const at = {
+    workerUrl: null,
+    pollTimer: null,
+    busy: false,
+  };
+
+  async function fetchPublicConfig() {
+    try {
+      const res = await fetch(`${API_BASE}/config`, withAuth());
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function atFmtUsd(v, sign = false) {
+    if (v == null || isNaN(v)) return "—";
+    const n = Number(v);
+    const s = (sign && n > 0 ? "+" : "") + n.toFixed(Math.abs(n) >= 1000 ? 0 : 2);
+    return `${s} $`;
+  }
+
+  function atSecsToHuman(secs) {
+    if (!secs) return "—";
+    if (secs < 60) return `${secs} с`;
+    if (secs < 3600) return `${Math.round(secs / 60)} мин`;
+    return `${(secs / 3600).toFixed(1)} ч`;
+  }
+
+  async function atFetch(path, init) {
+    if (!at.workerUrl) throw new Error("autotrade worker недоступен");
+    const url = `${at.workerUrl.replace(/\/$/, "")}${path}`;
+    const opts = init ? { ...init } : {};
+    const headers = new Headers(opts.headers || {});
+    headers.set("Content-Type", "application/json");
+    opts.headers = headers;
+    const res = await fetch(url, opts);
+    let body = null;
+    try {
+      body = await res.json();
+    } catch (_) {}
+    if (!res.ok) {
+      const msg = (body && (body.detail || body.error)) || res.statusText;
+      throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+    }
+    return body || {};
+  }
+
+  async function atRefreshStatus() {
+    const card = $("autotrade-card");
+    if (!card || card.hidden) return;
+    let s;
+    try {
+      s = await atFetch("/autotrade/status");
+    } catch (e) {
+      $("at-keys-status").textContent = `Воркер не отвечает: ${e.message}`;
+      return;
+    }
+
+    const networkPill = $("at-network-pill");
+    networkPill.textContent =
+      s.network === "testnet" ? "TESTNET" : s.network === "mainnet" ? "MAINNET" : "—";
+    networkPill.className = "at-pill " + (s.network === "mainnet" ? "at-pill-live" : "at-pill-paper");
+
+    const instr = $("at-instrument-pill");
+    instr.textContent = s.instrument === "spot" ? "SPOT" : s.instrument === "linear" ? "PERP" : "—";
+
+    $("at-equity").textContent = atFmtUsd(s.equity_usdt);
+    $("at-free").textContent = atFmtUsd(s.free_usdt);
+    const dpnl = $("at-day-pnl");
+    dpnl.textContent = atFmtUsd(s.today_pnl_usdt, true);
+    dpnl.dataset.tone = (s.today_pnl_usdt || 0) > 0 ? "pos" : (s.today_pnl_usdt || 0) < 0 ? "neg" : "neutral";
+    const wpnl = $("at-week-pnl");
+    wpnl.textContent = atFmtUsd(s.week_pnl_usdt, true);
+    wpnl.dataset.tone = (s.week_pnl_usdt || 0) > 0 ? "pos" : (s.week_pnl_usdt || 0) < 0 ? "neg" : "neutral";
+
+    const positions = s.open_positions || [];
+    $("at-open-count").textContent = String(positions.length);
+    $("at-interval").textContent = atSecsToHuman(s.scan_interval_sec);
+
+    const toggle = $("at-toggle");
+    if (!at.busy) toggle.checked = !!s.running;
+
+    if (s.network) $("at-network").value = s.network;
+    if (s.instrument) $("at-instrument").value = s.instrument;
+    if (s.leverage) $("at-leverage").value = s.leverage;
+    if (s.position_pct) $("at-position-pct").value = s.position_pct;
+
+    const ks = $("at-keys-status");
+    const nets = s.available_networks || [];
+    if (nets.length === 0) {
+      ks.textContent = "API-ключи не сохранены. Сохрани, чтобы запустить.";
+    } else {
+      ks.textContent = `Сохранены: ${nets.map((n) => n.toUpperCase()).join(", ")}`;
+    }
+    if (s.balance_error) {
+      ks.textContent += ` · Bybit: ${s.balance_error}`;
+    }
+    if (s.halted_reason && !s.running) {
+      ks.textContent += ` · Остановлен: ${s.halted_reason}`;
+    }
+
+    const wrap = $("at-positions-wrap");
+    const ul = $("at-positions");
+    if (positions.length) {
+      wrap.hidden = false;
+      ul.innerHTML = positions
+        .map((p) => {
+          const tone = (p.unrealised || 0) > 0 ? "pos" : (p.unrealised || 0) < 0 ? "neg" : "neutral";
+          return `<li>
+              <span class="at-pos-sym">${escapeHtml(p.symbol || "")}</span>
+              <span class="at-pos-side ${p.side === "Buy" ? "long" : "short"}">${p.side === "Buy" ? "LONG" : "SHORT"}</span>
+              <span class="muted">×${escapeHtml(String(p.size))}</span>
+              <span class="muted">@ ${escapeHtml(String(p.entry || "—"))}</span>
+              <span class="at-pos-pnl" data-tone="${tone}">${atFmtUsd(p.unrealised, true)}</span>
+            </li>`;
+        })
+        .join("");
+    } else {
+      wrap.hidden = true;
+      ul.innerHTML = "";
+    }
+  }
+
+  async function atRefreshHistory() {
+    const list = $("at-history");
+    if (!list) return;
+    let h;
+    try {
+      h = await atFetch("/autotrade/history?limit=20");
+    } catch (_) {
+      return;
+    }
+    const trades = h.trades || [];
+    const runs = h.runs || [];
+    if (!trades.length && !runs.length) {
+      list.innerHTML = `<li class="muted">Истории пока нет.</li>`;
+      return;
+    }
+    const items = [];
+    trades.slice(0, 8).forEach((t) => {
+      const ts = t.opened_at ? new Date(t.opened_at * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "—";
+      const closed = t.closed_at != null;
+      const tone = closed ? ((t.pnl_usdt || 0) > 0 ? "pos" : (t.pnl_usdt || 0) < 0 ? "neg" : "neutral") : "neutral";
+      items.push(`<li>
+        <span class="at-h-time">${escapeHtml(ts)}</span>
+        <span class="at-h-tag ${closed ? "closed" : "open"}">${closed ? "CLOSED" : "OPEN"}</span>
+        <span class="at-h-sym">${escapeHtml(t.symbol)} · ${t.direction === "long" ? "LONG" : "SHORT"}</span>
+        <span class="muted">conf ${t.confidence ?? "—"}</span>
+        ${closed ? `<span class="at-pos-pnl" data-tone="${tone}">${atFmtUsd(t.pnl_usdt, true)}</span>` : `<span class="muted">в позиции</span>`}
+      </li>`);
+    });
+    runs.slice(0, 5).forEach((r) => {
+      const ts = r.started_at ? new Date(r.started_at * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "—";
+      let tag;
+      if (r.action === "entered") tag = `вошёл ${r.chosen_coin || "?"} (${r.chosen_direction || "?"}, conf ${r.chosen_confidence ?? "—"})`;
+      else if (r.action === "skip_no_signal") tag = "нет идей с порогом";
+      else if (r.action === "skip_full") tag = "лимит позиций";
+      else if (r.action === "halted") tag = "стоп: " + (r.error || "cap");
+      else if (r.action === "error") tag = "ошибка: " + (r.error || "");
+      else tag = r.action || "—";
+      items.push(`<li class="at-h-run">
+        <span class="at-h-time">${escapeHtml(ts)}</span>
+        <span class="at-h-tag scan">SCAN</span>
+        <span class="muted">${escapeHtml(tag)}</span>
+        <span class="muted">${r.coins_scanned || 0} coins</span>
+      </li>`);
+    });
+    list.innerHTML = items.join("");
+  }
+
+  async function atSaveKeys() {
+    const apiKey = $("at-api-key").value.trim();
+    const apiSecret = $("at-api-secret").value.trim();
+    const network = $("at-network").value || "mainnet";
+    if (!apiKey || !apiSecret) {
+      $("at-keys-status").textContent = "Введи API key и secret.";
+      return;
+    }
+    $("at-save-keys").disabled = true;
+    $("at-keys-status").textContent = "Проверяю ключ на Bybit…";
+    try {
+      const r = await atFetch("/autotrade/keys", {
+        method: "POST",
+        body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret, network }),
+      });
+      $("at-keys-status").textContent = `OK · ${network.toUpperCase()} · equity ${atFmtUsd(r.equity_usdt)} · free ${atFmtUsd(r.free_usdt)}`;
+      $("at-api-key").value = "";
+      $("at-api-secret").value = "";
+      atRefreshStatus();
+    } catch (e) {
+      $("at-keys-status").textContent = `Ошибка: ${e.message}`;
+    } finally {
+      $("at-save-keys").disabled = false;
+    }
+  }
+
+  async function atToggle(on) {
+    at.busy = true;
+    try {
+      if (on) {
+        const body = {
+          network: $("at-network").value || "mainnet",
+          instrument: $("at-instrument").value || "linear",
+          leverage: parseFloat($("at-leverage").value) || 3,
+          position_pct: parseFloat($("at-position-pct").value) || 2,
+        };
+        await atFetch("/autotrade/start", { method: "POST", body: JSON.stringify(body) });
+      } else {
+        await atFetch("/autotrade/stop", { method: "POST" });
+      }
+    } catch (e) {
+      $("at-keys-status").textContent = `Не удалось: ${e.message}`;
+      $("at-toggle").checked = !on;
+    } finally {
+      at.busy = false;
+      atRefreshStatus();
+    }
+  }
+
+  async function atEmergency() {
+    if (!confirm("Закрыть все открытые позиции маркетом и остановить бота на час?")) return;
+    try {
+      const r = await atFetch("/autotrade/emergency", { method: "POST" });
+      $("at-keys-status").textContent = `Аварийный стоп · закрыто позиций: ${r.closed_positions ?? 0}`;
+    } catch (e) {
+      $("at-keys-status").textContent = `Ошибка: ${e.message}`;
+    } finally {
+      atRefreshStatus();
+    }
+  }
+
+  async function setupAutotrade() {
+    const cfg = await fetchPublicConfig();
+    if (!cfg || !cfg.worker_url) return;
+    at.workerUrl = cfg.worker_url;
+    const card = $("autotrade-card");
+    card.hidden = false;
+
+    $("at-toggle").addEventListener("change", (e) => atToggle(e.target.checked));
+    $("at-save-keys").addEventListener("click", atSaveKeys);
+    $("at-stop").addEventListener("click", () => atToggle(false));
+    $("at-emergency").addEventListener("click", atEmergency);
+
+    await atRefreshStatus();
+    atRefreshHistory();
+    if (at.pollTimer) clearInterval(at.pollTimer);
+    at.pollTimer = setInterval(() => {
+      atRefreshStatus();
+      atRefreshHistory();
+    }, 20_000);
+  }
+
   function init() {
     setupThemeToggle();
     buildChips("coin-row", COINS, "coin");
@@ -563,6 +820,7 @@
     $("analyze-btn").addEventListener("click", analyze);
     checkHealth();
     loadContext();
+    setupAutotrade();
   }
 
   document.addEventListener("DOMContentLoaded", init);

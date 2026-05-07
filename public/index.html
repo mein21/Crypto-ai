@@ -76,6 +76,89 @@
         </button>
       </section>
 
+      <section class="card autotrade-card" id="autotrade-card" hidden>
+        <header class="at-head">
+          <div>
+            <div class="at-head-title">
+              <h3>Автотрейд Bybit</h3>
+              <span class="at-pill" id="at-network-pill">—</span>
+              <span class="at-pill at-pill-soft" id="at-instrument-pill">—</span>
+            </div>
+            <p class="muted">Воркер сканирует все пары × ТФ, выбирает лучшую идею по уверенности и размещает лимит-ордер на Bybit. Stop-loss и тейки уже на ордере.</p>
+          </div>
+          <label class="at-switch" title="Включить / выключить автотрейд">
+            <input type="checkbox" id="at-toggle" />
+            <span class="at-switch-track"><span class="at-switch-thumb"></span></span>
+          </label>
+        </header>
+
+        <div class="at-stats" id="at-stats">
+          <div class="at-stat"><span class="at-stat-key">Equity</span><span class="at-stat-val" id="at-equity">—</span></div>
+          <div class="at-stat"><span class="at-stat-key">Free</span><span class="at-stat-val" id="at-free">—</span></div>
+          <div class="at-stat"><span class="at-stat-key">P&amp;L 24ч</span><span class="at-stat-val" id="at-day-pnl">—</span></div>
+          <div class="at-stat"><span class="at-stat-key">P&amp;L 7д</span><span class="at-stat-val" id="at-week-pnl">—</span></div>
+          <div class="at-stat"><span class="at-stat-key">Открытых</span><span class="at-stat-val" id="at-open-count">—</span></div>
+          <div class="at-stat"><span class="at-stat-key">Скан</span><span class="at-stat-val" id="at-interval">—</span></div>
+        </div>
+
+        <div class="at-config">
+          <div class="at-config-row">
+            <label class="at-field">
+              <span>Сеть</span>
+              <select id="at-network">
+                <option value="mainnet">Mainnet (реальные деньги)</option>
+                <option value="testnet">Testnet (бумажные)</option>
+              </select>
+            </label>
+            <label class="at-field">
+              <span>Инструмент</span>
+              <select id="at-instrument">
+                <option value="linear">Perp (USDT, плечо)</option>
+                <option value="spot">Spot (без плеча, только лонг)</option>
+              </select>
+            </label>
+            <label class="at-field">
+              <span>Плечо</span>
+              <input id="at-leverage" type="number" min="1" max="20" step="1" value="3" />
+            </label>
+            <label class="at-field">
+              <span>Риск %</span>
+              <input id="at-position-pct" type="number" min="0.1" max="100" step="0.1" value="2" />
+            </label>
+          </div>
+
+          <details class="at-keys" id="at-keys-panel">
+            <summary>API-ключ Bybit</summary>
+            <div class="at-keys-body">
+              <p class="muted">
+                Создай ключ на <a href="https://www.bybit.com/app/user/api-management" target="_blank" rel="noreferrer noopener">bybit.com → API</a> с правами «Contract Trade» + «Spot Trade», <strong>без</strong> Withdraw. Whitelist IP воркера.
+              </p>
+              <div class="at-keys-row">
+                <input id="at-api-key" type="text" placeholder="API key" autocomplete="off" />
+                <input id="at-api-secret" type="password" placeholder="API secret" autocomplete="off" />
+                <button class="at-btn" id="at-save-keys" type="button">Сохранить</button>
+              </div>
+              <p class="at-keys-status muted" id="at-keys-status">—</p>
+            </div>
+          </details>
+
+          <div class="at-actions">
+            <button class="at-btn at-btn-ghost" id="at-stop" type="button">Стоп</button>
+            <button class="at-btn at-btn-danger" id="at-emergency" type="button">Закрыть всё</button>
+          </div>
+        </div>
+
+        <div class="at-positions" id="at-positions-wrap" hidden>
+          <h4>Открытые позиции</h4>
+          <ul class="at-positions-list" id="at-positions"></ul>
+        </div>
+
+        <div class="at-history">
+          <h4>История</h4>
+          <ul class="at-history-list" id="at-history"></ul>
+        </div>
+      </section>
+
       <section id="market-context" class="market-context" hidden>
         <div class="card fng-card">
           <div class="fng-head">
