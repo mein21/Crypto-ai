@@ -52,14 +52,37 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
 """
 
 
-def _build_user_prompt(coin: str, timeframe: str, summary: dict) -> str:
-    return (
-        f"Монета: {coin}/USDT\n"
-        f"Таймфрейм: {timeframe}\n"
-        f"Текущая цена: {summary['close']}\n\n"
-        f"Технические данные (JSON):\n{json.dumps(summary, ensure_ascii=False, indent=2)}\n\n"
-        f"Сделай анализ и торговую идею. Ответь ТОЛЬКО JSON по указанной схеме."
+def _build_user_prompt(coin: str, timeframe: str, summary: dict, extra: dict | None = None) -> str:
+    parts = [
+        f"Монета: {coin}/USDT",
+        f"Таймфрейм: {timeframe}",
+        f"Текущая цена: {summary['close']}",
+        "",
+        f"Технические данные (JSON):\n{json.dumps(summary, ensure_ascii=False, indent=2)}",
+    ]
+    if extra:
+        htf = extra.get("htf_trends") or []
+        if htf:
+            htf_lines = [
+                f"  • {h['tf']}: тренд {h['trend']}, RSI {h['rsi']} ({h['rsi_state']}), MACD {h['macd_state']}, изм. за 30 баров {h['change_pct_30bars']}%"
+                for h in htf
+            ]
+            parts.append("\nКонтекст старших ТФ:\n" + "\n".join(htf_lines))
+        fng = extra.get("fear_greed")
+        if fng:
+            parts.append(
+                f"\nИндекс страха и жадности: {fng['value']} ({fng['classification']})"
+            )
+        news = [t for t in (extra.get("news_titles") or []) if t]
+        if news:
+            parts.append("\nСвежие заголовки новостей:\n- " + "\n- ".join(news[:5]))
+    parts.append(
+        "\nУчти контекст старших ТФ (если они идут против анализируемого ТФ — снижай уверенность),"
+        " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность) и заголовки новостей"
+        " (упомяни их в narrative, если они существенны). Сделай анализ и торговую идею."
+        " Ответь ТОЛЬКО JSON по указанной схеме."
     )
+    return "\n".join(parts)
 
 
 def _strip_code_fences(text: str) -> str:
@@ -91,7 +114,7 @@ def _parse_analysis_json(text: str, coin: str, timeframe: str) -> Analysis:
     )
 
 
-def _groq_analyze(coin: str, timeframe: str, summary: dict) -> Analysis | None:
+def _groq_analyze(coin: str, timeframe: str, summary: dict, extra: dict | None = None) -> Analysis | None:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
         return None
@@ -102,7 +125,7 @@ def _groq_analyze(coin: str, timeframe: str, summary: dict) -> Analysis | None:
         "model": model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": _build_user_prompt(coin, timeframe, summary)},
+            {"role": "user", "content": _build_user_prompt(coin, timeframe, summary, extra)},
         ],
         "temperature": 0.4,
         "max_tokens": 2048,
@@ -120,7 +143,7 @@ def _groq_analyze(coin: str, timeframe: str, summary: dict) -> Analysis | None:
         return None
 
 
-def _gemini_analyze(coin: str, timeframe: str, summary: dict) -> Analysis | None:
+def _gemini_analyze(coin: str, timeframe: str, summary: dict, extra: dict | None = None) -> Analysis | None:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return None
@@ -138,7 +161,7 @@ def _gemini_analyze(coin: str, timeframe: str, summary: dict) -> Analysis | None
                 "response_mime_type": "application/json",
             },
         )
-        resp = model.generate_content(_build_user_prompt(coin, timeframe, summary))
+        resp = model.generate_content(_build_user_prompt(coin, timeframe, summary, extra))
         text = (resp.text or "").strip()
         if not text:
             return None
@@ -225,9 +248,9 @@ def _rules_based_fallback(coin: str, timeframe: str, summary: dict) -> Analysis:
     )
 
 
-def analyze(coin: str, timeframe: str, summary: dict) -> Analysis:
+def analyze(coin: str, timeframe: str, summary: dict, extra_context: dict | None = None) -> Analysis:
     for provider in (_groq_analyze, _gemini_analyze):
-        result = provider(coin, timeframe, summary)
+        result = provider(coin, timeframe, summary, extra_context)
         if result is not None:
             return result
     return _rules_based_fallback(coin, timeframe, summary)

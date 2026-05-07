@@ -427,3 +427,201 @@ h1 {
 .footer p {
   margin: 0;
 }
+
+/* --- Market context (Fear & Greed + Correlation) ----------------------- */
+
+.market-context {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.5fr);
+  gap: 18px;
+  margin-bottom: 20px;
+}
+@media (max-width: 900px) {
+  .market-context {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fng-head h3,
+.corr-head h3 {
+  margin: 0 0 4px;
+}
+
+.fng-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.fng-gauge {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.fng-value {
+  font-size: 48px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.fng-label {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.fng-bar-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--red) 0%,
+    #ef9a4a 25%,
+    var(--yellow) 50%,
+    #9ccc65 75%,
+    var(--green) 100%
+  );
+  overflow: hidden;
+  opacity: 0.7;
+}
+.fng-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.fng-bar-legend {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.corr-wrap {
+  margin-top: 12px;
+  overflow-x: auto;
+}
+.corr-table {
+  border-collapse: collapse;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+  width: 100%;
+  min-width: 540px;
+}
+.corr-table th,
+.corr-table td {
+  padding: 6px 4px;
+  text-align: center;
+  border: 1px solid var(--border);
+  font-weight: 600;
+}
+.corr-table thead th {
+  background: var(--bg-elev);
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.corr-table tbody th {
+  background: var(--bg-elev);
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  position: sticky;
+  left: 0;
+}
+.corr-table td {
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Multi-TF strip ----------------------------------------------------- */
+
+.htf-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.htf-tile {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.htf-tile.long {
+  border-left: 3px solid var(--green);
+}
+.htf-tile.short {
+  border-left: 3px solid var(--red);
+}
+.htf-tile.flat {
+  border-left: 3px solid var(--muted);
+}
+.htf-tf {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.htf-trend {
+  font-size: 15px;
+  font-weight: 700;
+}
+.htf-meta {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* --- News list ---------------------------------------------------------- */
+
+.news-card {
+  display: flex;
+  flex-direction: column;
+}
+.news-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.news-list li {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.news-list li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+.news-list a {
+  color: var(--text);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  display: block;
+}
+.news-list a:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.news-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

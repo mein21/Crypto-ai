@@ -62,6 +62,96 @@
     }
   }
 
+  function fngColor(value) {
+    if (value <= 24) return "var(--red)";
+    if (value <= 44) return "#ef9a4a";
+    if (value <= 55) return "var(--yellow)";
+    if (value <= 74) return "#9ccc65";
+    return "var(--green)";
+  }
+
+  function ruFngLabel(en) {
+    const map = {
+      "extreme fear": "экстремальный страх",
+      "fear": "страх",
+      "neutral": "нейтрально",
+      "greed": "жадность",
+      "extreme greed": "экстремальная жадность",
+    };
+    return map[(en || "").toLowerCase()] || en || "";
+  }
+
+  function corrColor(v) {
+    // map [-1, 1] → rgb gradient red ↔ neutral ↔ green
+    const t = (v + 1) / 2; // 0..1
+    const r = Math.round(220 * (1 - t) + 60 * t);
+    const g = Math.round(60 * (1 - t) + 200 * t);
+    const b = 90;
+    const a = 0.18 + Math.abs(v) * 0.55;
+    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(2)})`;
+  }
+
+  function renderFearGreed(fng) {
+    if (!fng) return false;
+    $("fng-value").textContent = fng.value;
+    const ruLabel = ruFngLabel(fng.classification);
+    $("fng-label").textContent = ruLabel;
+    $("fng-value").style.color = fngColor(fng.value);
+    const fill = $("fng-bar-fill");
+    fill.style.width = `${Math.max(2, fng.value)}%`;
+    fill.style.background = fngColor(fng.value);
+    return true;
+  }
+
+  function renderCorrelation(corr) {
+    if (!corr || !corr.labels || !corr.matrix) return false;
+    const tbl = $("corr-table");
+    tbl.innerHTML = "";
+    const labels = corr.labels;
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    headerRow.appendChild(document.createElement("th"));
+    labels.forEach((l) => {
+      const th = document.createElement("th");
+      th.textContent = l;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    tbl.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    labels.forEach((row, i) => {
+      const tr = document.createElement("tr");
+      const lh = document.createElement("th");
+      lh.textContent = row;
+      tr.appendChild(lh);
+      labels.forEach((_, j) => {
+        const td = document.createElement("td");
+        const v = corr.matrix[i][j];
+        td.textContent = v.toFixed(2);
+        td.style.background = corrColor(v);
+        if (i === j) td.style.opacity = "0.55";
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    $("corr-meta").textContent = `${labels.length} монет · окно ${corr.window_days} дней · ${corr.n_observations} наблюдений`;
+    return true;
+  }
+
+  async function loadContext() {
+    try {
+      const r = await fetch(`${API_BASE}/context`, withAuth({ mode: "cors" }));
+      if (!r.ok) return;
+      const j = await r.json();
+      const fngOk = renderFearGreed(j.fear_greed);
+      const corrOk = renderCorrelation(j.correlation);
+      if (fngOk || corrOk) $("market-context").hidden = false;
+    } catch (e) {
+      // non-fatal
+    }
+  }
+
   function showError(msg) {
     const box = $("error-box");
     box.hidden = false;
@@ -79,9 +169,60 @@
     return v.toFixed(6);
   }
 
+  function trendBadgeClass(trend) {
+    if ((trend || "").includes("восход")) return "long";
+    if ((trend || "").includes("нисход")) return "short";
+    return "flat";
+  }
+
+  function renderHtfStrip(htf) {
+    const strip = $("htf-strip");
+    strip.innerHTML = "";
+    if (!htf || !htf.length) {
+      strip.hidden = true;
+      return;
+    }
+    htf.forEach((h) => {
+      const tile = document.createElement("div");
+      tile.className = "htf-tile " + trendBadgeClass(h.trend);
+      const sign = h.change_pct_30bars >= 0 ? "+" : "";
+      tile.innerHTML = `
+        <div class="htf-tf">${h.tf}</div>
+        <div class="htf-trend">${h.trend}</div>
+        <div class="htf-meta">RSI ${h.rsi} · MACD ${h.macd_state} · ${sign}${h.change_pct_30bars}%</div>
+      `;
+      strip.appendChild(tile);
+    });
+    strip.hidden = false;
+  }
+
+  function renderNews(news) {
+    const ul = $("news-list");
+    ul.innerHTML = "";
+    if (!news || !news.length) {
+      ul.innerHTML = `<li class="muted">Свежих новостей не найдено</li>`;
+      return;
+    }
+    news.forEach((n) => {
+      const li = document.createElement("li");
+      const date = n.ts ? new Date(n.ts * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "";
+      li.innerHTML = `
+        <a href="${n.url}" target="_blank" rel="noreferrer noopener">${n.title}</a>
+        <div class="news-meta">${n.source || ""} · ${date}</div>
+      `;
+      ul.appendChild(li);
+    });
+  }
+
   function renderResult(resp) {
-    const { analysis, chart_png_b64, indicators, last_price } = resp;
+    const { analysis, chart_png_b64, indicators, last_price, htf_trends, news, fear_greed } = resp;
     $("result").hidden = false;
+    renderHtfStrip(htf_trends);
+    renderNews(news);
+    if (fear_greed) {
+      renderFearGreed(fear_greed);
+      $("market-context").hidden = false;
+    }
 
     const dataUrl = `data:image/png;base64,${chart_png_b64}`;
     $("chart-img").src = dataUrl;
@@ -232,6 +373,7 @@
     buildChips("tf-row", TFS, "tf");
     $("analyze-btn").addEventListener("click", analyze);
     checkHealth();
+    loadContext();
   }
 
   document.addEventListener("DOMContentLoaded", init);
