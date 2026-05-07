@@ -314,12 +314,27 @@
 
     const idea = $("trade-idea");
     idea.innerHTML = "";
+    const rr = (target) => {
+      if (
+        sig.entry == null ||
+        sig.stop_loss == null ||
+        target == null ||
+        sig.entry === sig.stop_loss
+      )
+        return null;
+      const sign = sig.direction === "short" ? -1 : 1;
+      return ((target - sig.entry) / Math.abs(sig.entry - sig.stop_loss)) * sign;
+    };
+    const rrText = (target) => {
+      const v = rr(target);
+      return v == null ? "" : ` · RR ${v.toFixed(2)}`;
+    };
     const rows = [
       ["Направление", dirText, sig.direction || "flat"],
       ["Вход", fmtPrice(sig.entry), "warn"],
       ["Stop-loss", fmtPrice(sig.stop_loss), "short"],
-      ["Take-profit 1", fmtPrice(sig.take_profit_1), "long"],
-      ["Take-profit 2", fmtPrice(sig.take_profit_2), "long"],
+      ["Take-profit 1", `${fmtPrice(sig.take_profit_1)}${rrText(sig.take_profit_1)}`, "long"],
+      ["Take-profit 2", `${fmtPrice(sig.take_profit_2)}${rrText(sig.take_profit_2)}`, "long"],
       ["Уверенность", `${sig.confidence ?? 0}%`, ""],
     ];
     rows.forEach(([k, v, cls]) => {

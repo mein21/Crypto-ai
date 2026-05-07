@@ -26,7 +26,8 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
 ВАЖНО:
 - Используй уровни поддержки/сопротивления из входных данных.
 - Stop-loss всегда должен быть за ближайшим уровнем поддержки (для long) или сопротивления (для short).
-- Take-profit ставь у следующих уровней.
+- Take-profit-1 должен давать соотношение риск/прибыль (RR) ≈ 1.5: |TP1 − entry| / |entry − SL| ≈ 1.5 (допустимо 1.3–1.7). Если ближайший уровень даёт RR заметно меньше — отодвинь TP1 дальше; если сильно больше — выбирай ближе.
+- Take-profit-2 ставь дальше TP1 с RR ≈ 2.5 (допустимо 2.0–3.5).
 - Если рынок неопределённый — выбирай direction = "flat" и не предлагай вход.
 - confidence — целое от 0 до 100, отражает уверенность в идее.
 - Не используй markdown и эмодзи. Возвращай ТОЛЬКО валидный JSON по схеме.
@@ -193,6 +194,58 @@ def _gemini_analyze(coin: str, timeframe: str, summary: dict, extra: dict | None
         return None
 
 
+TP1_RR_TARGET = 1.5
+TP2_RR_TARGET = 2.5
+TP1_RR_BAND = (1.3, 1.7)
+TP2_RR_BAND = (2.0, 3.5)
+
+
+def _round_price(value: float, ref: float) -> float:
+    """Round price to a sensible precision based on magnitude (crypto prices vary 6+ orders)."""
+    if ref >= 1000:
+        return round(value, 2)
+    if ref >= 10:
+        return round(value, 4)
+    return round(value, 6)
+
+
+def _enforce_rr_targets(signal: Signal) -> Signal:
+    """Post-process LLM/rules signal so TP1 lands inside RR band [1.3, 1.7] and TP2 inside [2.0, 3.5].
+
+    If the LLM returned values outside the band (or missing TP2), we recompute relative to entry+stop
+    so the user always sees a trade idea with a sane reward/risk profile.
+    """
+    if signal.direction not in {"long", "short"}:
+        return signal
+    entry = signal.entry
+    stop = signal.stop_loss
+    if entry is None or stop is None:
+        return signal
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return signal
+    sign = 1 if signal.direction == "long" else -1
+
+    def rr(target: float | None) -> float | None:
+        if target is None:
+            return None
+        return (target - entry) / risk * sign
+
+    tp1_rr = rr(signal.take_profit_1)
+    if tp1_rr is None or not (TP1_RR_BAND[0] <= tp1_rr <= TP1_RR_BAND[1]):
+        signal.take_profit_1 = _round_price(entry + sign * risk * TP1_RR_TARGET, entry)
+
+    tp2_rr = rr(signal.take_profit_2)
+    needs_tp2 = (
+        tp2_rr is None
+        or tp2_rr <= TP1_RR_TARGET
+        or not (TP2_RR_BAND[0] <= tp2_rr <= TP2_RR_BAND[1])
+    )
+    if needs_tp2:
+        signal.take_profit_2 = _round_price(entry + sign * risk * TP2_RR_TARGET, entry)
+    return signal
+
+
 def _rules_based_fallback(coin: str, timeframe: str, summary: dict) -> Analysis:
     close = float(summary["close"])
     atr_v = float(summary["atr"])
@@ -274,5 +327,8 @@ def analyze(coin: str, timeframe: str, summary: dict, extra_context: dict | None
     for provider in (_groq_analyze, _gemini_analyze):
         result = provider(coin, timeframe, summary, extra_context)
         if result is not None:
+            result.signal = _enforce_rr_targets(result.signal)
             return result
-    return _rules_based_fallback(coin, timeframe, summary)
+    fallback = _rules_based_fallback(coin, timeframe, summary)
+    fallback.signal = _enforce_rr_targets(fallback.signal)
+    return fallback
