@@ -21,6 +21,7 @@ from .context import (
 from .data import SYMBOL_MAP, fetch_ohlcv
 from .indicators import compute_all
 from .llm import analyze
+from .news_enrich import enrich_news
 from .onchain import fetch_onchain
 from .schemas import (
     AnalyzeRequest,
@@ -86,13 +87,13 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
     # Auxiliary context — none of these should fail the request.
     htf_raw = fetch_higher_tf_trends(req.coin, req.timeframe)
     fng_raw = fetch_fear_greed()
-    news_raw = fetch_news_for_coin(req.coin, limit=5)
+    news_raw = enrich_news(req.coin, fetch_news_for_coin(req.coin, limit=5))
     onchain_raw = fetch_onchain(req.coin)
 
     extra_context = {
         "htf_trends": htf_raw,
         "fear_greed": fng_raw,
-        "news_titles": [n.get("title", "") for n in news_raw][:5],
+        "news_titles": [n.get("title_ru") or n.get("title", "") for n in news_raw][:5],
         "onchain": onchain_raw,
         "coin": req.coin,
     }

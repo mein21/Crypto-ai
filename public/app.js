@@ -82,13 +82,23 @@
   }
 
   function corrColor(v) {
-    // map [-1, 1] → rgb gradient red ↔ neutral ↔ green
-    const t = (v + 1) / 2; // 0..1
-    const r = Math.round(220 * (1 - t) + 60 * t);
-    const g = Math.round(60 * (1 - t) + 200 * t);
-    const b = 90;
-    const a = 0.18 + Math.abs(v) * 0.55;
-    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(2)})`;
+    // Monochrome heatmap matching the aurora palette: stronger |v| → brighter
+    // white tint; sign is reflected by hue (positive → neutral white, negative
+    // → very subtle warm tint). Works in both light and dark themes via
+    // alpha-on-current background.
+    const isLight = document.documentElement.getAttribute("data-theme") === "light";
+    const mag = Math.min(1, Math.abs(v));
+    const baseAlpha = 0.04 + 0.22 * mag;
+    if (isLight) {
+      // Black ink on white
+      return v >= 0
+        ? `rgba(0, 0, 0, ${baseAlpha})`
+        : `rgba(120, 60, 60, ${baseAlpha + 0.02})`;
+    }
+    // White ink on black
+    return v >= 0
+      ? `rgba(255, 255, 255, ${baseAlpha})`
+      : `rgba(255, 200, 200, ${baseAlpha + 0.02})`;
   }
 
   function renderFearGreed(fng) {
@@ -226,19 +236,65 @@
     strip.hidden = false;
   }
 
+  const IMPACT_LABEL = { high: "высокое", medium: "среднее", low: "низкое" };
+  const TREND_LABEL = { bullish: "бычий", bearish: "медвежий", neutral: "нейтр." };
+  const TREND_ARROW = { bullish: "▲", bearish: "▼", neutral: "—" };
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   function renderNews(news) {
     const ul = $("news-list");
     ul.innerHTML = "";
     if (!news || !news.length) {
-      ul.innerHTML = `<li class="muted">Свежих новостей не найдено</li>`;
+      ul.innerHTML = `<li class="news-empty">Свежих новостей не найдено</li>`;
       return;
     }
     news.forEach((n) => {
       const li = document.createElement("li");
-      const date = n.ts ? new Date(n.ts * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "";
+      li.className = "news-item";
+      const date = n.ts
+        ? new Date(n.ts * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" })
+        : "";
+      const ru = (n.title_ru || "").trim();
+      const orig = (n.title || "").trim();
+      const titleMain = ru || orig;
+      const showOrig = ru && orig && ru !== orig;
+      const initial = (state.coin || "?").slice(0, 1);
+      const thumb = n.image
+        ? `<img src="${escapeHtml(n.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+        : `<span class="news-thumb-fallback">${escapeHtml(initial)}</span>`;
+      const badges = [];
+      if (n.impact) {
+        badges.push(
+          `<span class="news-badge impact-${escapeHtml(n.impact)}">
+             <span class="badge-key">влияние</span> ${escapeHtml(IMPACT_LABEL[n.impact] || n.impact)}
+           </span>`,
+        );
+      }
+      if (n.sentiment) {
+        badges.push(
+          `<span class="news-badge trend-${escapeHtml(n.sentiment)}">
+             <span class="arrow">${TREND_ARROW[n.sentiment] || ""}</span>
+             ${escapeHtml(TREND_LABEL[n.sentiment] || n.sentiment)}
+           </span>`,
+        );
+      }
       li.innerHTML = `
-        <a href="${n.url}" target="_blank" rel="noreferrer noopener">${n.title}</a>
-        <div class="news-meta">${n.source || ""} · ${date}</div>
+        <a class="news-link" href="${escapeHtml(n.url)}" target="_blank" rel="noreferrer noopener">
+          <div class="news-thumb">${thumb}</div>
+          <div class="news-body">
+            <div class="news-title">${escapeHtml(titleMain)}</div>
+            ${showOrig ? `<div class="news-orig">${escapeHtml(orig)}</div>` : ""}
+            <div class="news-meta">${escapeHtml(n.source || "")}${date ? " · " + escapeHtml(date) : ""}</div>
+          </div>
+          ${badges.length ? `<div class="news-badges">${badges.join("")}</div>` : ""}
+        </a>
       `;
       ul.appendChild(li);
     });
@@ -485,7 +541,23 @@
     }
   }
 
+  function setupThemeToggle() {
+    const btn = $("theme-toggle");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+      const next = cur === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      try {
+        localStorage.setItem("theme", next);
+      } catch (e) {
+        // ignore quota / privacy-mode errors
+      }
+    });
+  }
+
   function init() {
+    setupThemeToggle();
     buildChips("coin-row", COINS, "coin");
     buildChips("tf-row", TFS, "tf");
     $("analyze-btn").addEventListener("click", analyze);
