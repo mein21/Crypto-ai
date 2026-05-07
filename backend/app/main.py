@@ -23,10 +23,12 @@ from .indicators import compute_all
 from .llm import analyze
 from .news_enrich import enrich_news
 from .onchain import fetch_onchain
+from .patterns import detect_patterns
 from .schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
     BtcOnchain,
+    CandlePattern,
     ContextResponse,
     CorrelationMatrix,
     EthOnchain,
@@ -90,15 +92,36 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
     news_raw = enrich_news(req.coin, fetch_news_for_coin(req.coin, limit=5))
     onchain_raw = fetch_onchain(req.coin)
 
+    try:
+        atr_last = float(ind.atr.iloc[-1])
+    except Exception:  # noqa: BLE001
+        atr_last = 0.0
+    patterns_raw = detect_patterns(
+        df,
+        lookback=10,
+        support=ind.support,
+        resistance=ind.resistance,
+        atr=atr_last,
+        trend_label=summary.get("trend"),
+    )
+
     extra_context = {
         "htf_trends": htf_raw,
         "fear_greed": fng_raw,
         "news_titles": [n.get("title_ru") or n.get("title", "") for n in news_raw][:5],
         "onchain": onchain_raw,
         "coin": req.coin,
+        "patterns": patterns_raw,
     }
     analysis = analyze(req.coin, req.timeframe, summary, extra_context=extra_context)
-    chart_b64 = render_chart_b64(req.coin, req.timeframe, ind, signal=analysis.signal)
+    analysis.patterns = [CandlePattern(**p) for p in patterns_raw]
+    chart_b64 = render_chart_b64(
+        req.coin,
+        req.timeframe,
+        ind,
+        signal=analysis.signal,
+        patterns=patterns_raw,
+    )
 
     onchain_obj: Onchain | None = None
     if onchain_raw and req.coin == "BTC":

@@ -13,6 +13,7 @@ from typing import Any
 
 import httpx
 
+from .patterns import patterns_summary_for_prompt
 from .schemas import Analysis, Signal
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
 - Take-profit-2 ставь дальше TP1 с RR ≈ 2.5 (допустимо 2.0–3.5).
 - Если рынок неопределённый — выбирай direction = "flat" и не предлагай вход.
 - confidence — целое от 0 до 100, отражает уверенность в идее.
+- Если переданы свежие свечные паттерны — обязательно упомяни их в narrative и учти при выборе direction/confidence: сильные разворотные паттерны у уровней (Bullish/Bearish Engulfing, Morning/Evening Star, Hammer/Shooting Star у S/R) — серьёзный аргумент; продолжающие паттерны (Marubozu, Three White Soldiers) подтверждают тренд; Doji/Spinning Top — повод снизить уверенность.
 - Не используй markdown и эмодзи. Возвращай ТОЛЬКО валидный JSON по схеме.
 
 Схема ответа:
@@ -53,7 +55,12 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
 """
 
 
-def _build_user_prompt(coin: str, timeframe: str, summary: dict, extra: dict | None = None) -> str:
+def _build_user_prompt(
+    coin: str,
+    timeframe: str,
+    summary: dict,
+    extra: dict | None = None,
+) -> str:
     parts = [
         f"Монета: {coin}/USDT",
         f"Таймфрейм: {timeframe}",
@@ -98,12 +105,21 @@ def _build_user_prompt(coin: str, timeframe: str, summary: dict, extra: dict | N
                 f"  • Загрузка блоков (10 блоков): {onchain.get('congestion_pct')}%\n"
                 f"  • Блок: {onchain.get('block_number')}"
             )
+        patterns = extra.get("patterns") or []
+        if patterns:
+            ps = patterns_summary_for_prompt(patterns, limit=6)
+            if ps:
+                parts.append(
+                    "\nСвежие свечные паттерны (от новых к старым, последние 10 баров):\n"
+                    + ps
+                )
     parts.append(
         "\nУчти контекст старших ТФ (если они идут против анализируемого ТФ — снижай уверенность),"
-        " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность), заголовки новостей"
-        " и он-чейн метрики (для BTC: высокие комиссии и забитый мемпул — признак ажиотажа; низкие — спокойствия;"
-        " для ETH: газ выше 50 gwei — высокий спрос, ниже 15 — затишье). Упомяни их в narrative, если существенны."
-        " Сделай анализ и торговую идею. Ответь ТОЛЬКО JSON по указанной схеме."
+        " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность), заголовки новостей,"
+        " он-чейн метрики (для BTC: высокие комиссии и забитый мемпул — признак ажиотажа; низкие — спокойствия;"
+        " для ETH: газ выше 50 gwei — высокий спрос, ниже 15 — затишье) и свежие свечные паттерны."
+        " Упомяни их в narrative, если существенны. Сделай анализ и торговую идею."
+        " Ответь ТОЛЬКО JSON по указанной схеме."
     )
     return "\n".join(parts)
 
@@ -137,7 +153,12 @@ def _parse_analysis_json(text: str, coin: str, timeframe: str) -> Analysis:
     )
 
 
-def _groq_analyze(coin: str, timeframe: str, summary: dict, extra: dict | None = None) -> Analysis | None:
+def _groq_analyze(
+    coin: str,
+    timeframe: str,
+    summary: dict,
+    extra: dict | None = None,
+) -> Analysis | None:
     api_key = os.getenv("GROQ_API_KEY", "").strip()
     if not api_key:
         return None
@@ -166,7 +187,12 @@ def _groq_analyze(coin: str, timeframe: str, summary: dict, extra: dict | None =
         return None
 
 
-def _gemini_analyze(coin: str, timeframe: str, summary: dict, extra: dict | None = None) -> Analysis | None:
+def _gemini_analyze(
+    coin: str,
+    timeframe: str,
+    summary: dict,
+    extra: dict | None = None,
+) -> Analysis | None:
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         return None
@@ -246,7 +272,12 @@ def _enforce_rr_targets(signal: Signal) -> Signal:
     return signal
 
 
-def _rules_based_fallback(coin: str, timeframe: str, summary: dict) -> Analysis:
+def _rules_based_fallback(
+    coin: str,
+    timeframe: str,
+    summary: dict,
+    extra: dict | None = None,
+) -> Analysis:
     close = float(summary["close"])
     atr_v = float(summary["atr"])
     trend = summary["trend"]
@@ -259,6 +290,12 @@ def _rules_based_fallback(coin: str, timeframe: str, summary: dict) -> Analysis:
     entry = stop = tp1 = tp2 = None
     confidence = 30
     rationale_parts: list[str] = []
+
+    patterns = (extra or {}).get("patterns") or []
+    fresh = [p for p in patterns if p.get("bar_index", -99) >= -3]
+    bull_score = sum(p["strength"] for p in fresh if p.get("bias") == "bullish")
+    bear_score = sum(p["strength"] for p in fresh if p.get("bias") == "bearish")
+    indecision = any(p.get("kind") == "indecision" for p in fresh)
 
     bullish = trend == "восходящий" and macd_state in {"бычий", "нейтрально"} and rsi_v < 70
     bearish = trend == "нисходящий" and macd_state in {"медвежий", "нейтрально"} and rsi_v > 30
@@ -282,6 +319,22 @@ def _rules_based_fallback(coin: str, timeframe: str, summary: dict) -> Analysis:
     else:
         rationale_parts.append("Нет согласованных сигналов — ждём подтверждения от уровней.")
 
+    # Pattern adjustment
+    if direction == "long" and bull_score >= 3:
+        confidence = min(80, confidence + 12)
+        rationale_parts.append("Свежие бычьи паттерны подтверждают идею.")
+    elif direction == "long" and bear_score >= 3:
+        confidence = max(20, confidence - 15)
+        rationale_parts.append("Свежие медвежьи паттерны ослабляют идею лонга.")
+    elif direction == "short" and bear_score >= 3:
+        confidence = min(80, confidence + 12)
+        rationale_parts.append("Свежие медвежьи паттерны подтверждают идею.")
+    elif direction == "short" and bull_score >= 3:
+        confidence = max(20, confidence - 15)
+        rationale_parts.append("Свежие бычьи паттерны ослабляют идею шорта.")
+    if indecision and direction != "flat":
+        confidence = max(20, confidence - 5)
+
     indicators_summary = {
         "rsi": f"{rsi_v:.1f} ({summary['rsi_state']})",
         "macd": f"{summary['macd']:.4f} / сигнал {summary['macd_signal']:.4f} ({macd_state})",
@@ -289,12 +342,21 @@ def _rules_based_fallback(coin: str, timeframe: str, summary: dict) -> Analysis:
         "bollinger": f"низ={summary['bb_lower']:.2f}, верх={summary['bb_upper']:.2f}",
     }
 
-    narrative = (
-        f"Тренд по EMA: {trend}. RSI {rsi_v:.1f} — {summary['rsi_state']}. MACD {macd_state}. "
-        f"Ближайшее сопротивление {resistance[0] if resistance else '—'}, "
-        f"ближайшая поддержка {support[0] if support else '—'}. "
-        f"ATR {atr_v:.2f} — учитывайте при размере позиции и стопе."
-    )
+    narrative_parts = [
+        f"Тренд по EMA: {trend}. RSI {rsi_v:.1f} — {summary['rsi_state']}. MACD {macd_state}.",
+        f"Ближайшее сопротивление {resistance[0] if resistance else '—'},"
+        f" ближайшая поддержка {support[0] if support else '—'}.",
+        f"ATR {atr_v:.2f} — учитывайте при размере позиции и стопе.",
+    ]
+    if fresh:
+        top = fresh[0]
+        bias_ru = {"bullish": "бычий", "bearish": "медвежий", "neutral": "нейтр."}.get(
+            top["bias"], top["bias"]
+        )
+        narrative_parts.append(
+            f"Свежий паттерн: {top['name_ru']} ({bias_ru}, сила {top['strength']}/3) — {top['context']}."
+        )
+    narrative = " ".join(narrative_parts)
 
     risks = [
         "Высокая волатильность крипторынка — возможны резкие движения вне ТА",
@@ -323,12 +385,17 @@ def _rules_based_fallback(coin: str, timeframe: str, summary: dict) -> Analysis:
     )
 
 
-def analyze(coin: str, timeframe: str, summary: dict, extra_context: dict | None = None) -> Analysis:
+def analyze(
+    coin: str,
+    timeframe: str,
+    summary: dict,
+    extra_context: dict | None = None,
+) -> Analysis:
     for provider in (_groq_analyze, _gemini_analyze):
         result = provider(coin, timeframe, summary, extra_context)
         if result is not None:
             result.signal = _enforce_rr_targets(result.signal)
             return result
-    fallback = _rules_based_fallback(coin, timeframe, summary)
+    fallback = _rules_based_fallback(coin, timeframe, summary, extra_context)
     fallback.signal = _enforce_rr_targets(fallback.signal)
     return fallback

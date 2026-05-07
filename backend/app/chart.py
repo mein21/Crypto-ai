@@ -31,6 +31,7 @@ def render_chart(
     ind: IndicatorBundle,
     signal: Optional[Signal] = None,
     bars: int = 150,
+    patterns: Optional[list[dict]] = None,
 ) -> bytes:
     df = ind.df.tail(bars).copy()
     df.index = pd.to_datetime(df.index).tz_convert(None)
@@ -63,6 +64,79 @@ def render_chart(
             alpha=0.6,
         ),
     ]
+
+    # Pattern marker overlays (one scatter per bias).
+    n_bars = len(df)
+    bull_marks: list[Optional[float]] = [None] * n_bars
+    bear_marks: list[Optional[float]] = [None] * n_bars
+    neutral_marks: list[Optional[float]] = [None] * n_bars
+    pattern_label: Optional[tuple[int, str, str]] = None  # (bar_pos, name_ru, bias)
+    if patterns:
+        # Pick the most significant recent pattern for the label.
+        ranked = sorted(
+            patterns,
+            key=lambda p: (p.get("strength", 1), -abs(p.get("bar_index", -1))),
+            reverse=True,
+        )
+        for p in patterns:
+            bar_index = int(p.get("bar_index", -1))  # negative offset from end
+            pos = n_bars + bar_index
+            if pos < 0 or pos >= n_bars:
+                continue
+            bias = p.get("bias", "neutral")
+            high = float(df["High"].iloc[pos])
+            low = float(df["Low"].iloc[pos])
+            pad = (high - low) * 0.6 if high > low else high * 0.002
+            if bias == "bullish":
+                v = low - pad
+                bull_marks[pos] = min(bull_marks[pos], v) if bull_marks[pos] is not None else v
+            elif bias == "bearish":
+                v = high + pad
+                bear_marks[pos] = max(bear_marks[pos], v) if bear_marks[pos] is not None else v
+            else:
+                v = high + pad
+                neutral_marks[pos] = (
+                    max(neutral_marks[pos], v) if neutral_marks[pos] is not None else v
+                )
+        if ranked:
+            top = ranked[0]
+            top_pos = n_bars + int(top.get("bar_index", -1))
+            if 0 <= top_pos < n_bars:
+                pattern_label = (top_pos, top.get("name_ru", top.get("name", "")), top.get("bias", "neutral"))
+
+        if any(v is not None for v in bull_marks):
+            addplots.append(
+                mpf.make_addplot(
+                    bull_marks,
+                    type="scatter",
+                    marker="^",
+                    markersize=80,
+                    color="#26a69a",
+                    panel=0,
+                )
+            )
+        if any(v is not None for v in bear_marks):
+            addplots.append(
+                mpf.make_addplot(
+                    bear_marks,
+                    type="scatter",
+                    marker="v",
+                    markersize=80,
+                    color="#ef5350",
+                    panel=0,
+                )
+            )
+        if any(v is not None for v in neutral_marks):
+            addplots.append(
+                mpf.make_addplot(
+                    neutral_marks,
+                    type="scatter",
+                    marker="o",
+                    markersize=55,
+                    color="#9e9e9e",
+                    panel=0,
+                )
+            )
 
     mc = mpf.make_marketcolors(up="#26a69a", down="#ef5350", edge="inherit", wick="inherit", volume="in")
     style = mpf.make_mpf_style(
@@ -191,6 +265,29 @@ def render_chart(
             va="top",
             bbox=dict(facecolor=color, edgecolor="none", boxstyle="round,pad=0.4", alpha=0.9),
         )
+
+    # Label for the most significant recent pattern
+    if pattern_label is not None:
+        pos, name_ru, bias = pattern_label
+        color_map = {"bullish": "#26a69a", "bearish": "#ef5350", "neutral": "#9e9e9e"}
+        color = color_map.get(bias, "#9e9e9e")
+        try:
+            high = float(df["High"].iloc[pos])
+            low = float(df["Low"].iloc[pos])
+            offset = (high - low) * 1.4 if high > low else high * 0.005
+            y = (low - offset) if bias == "bullish" else (high + offset)
+            ax_main.annotate(
+                name_ru,
+                xy=(pos, high if bias != "bullish" else low),
+                xytext=(pos, y),
+                fontsize=9,
+                color=color,
+                fontweight="bold",
+                ha="center",
+                arrowprops=dict(arrowstyle="-", color=color, lw=0.8, alpha=0.7),
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     # RSI 30/70 lines
     if ax_rsi is not None:
