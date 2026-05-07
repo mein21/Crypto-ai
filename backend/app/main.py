@@ -21,9 +21,11 @@ from .context import (
 from .data import SYMBOL_MAP, fetch_ohlcv
 from .indicators import compute_all
 from .llm import analyze
+from .patterns import detect_patterns
 from .schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
+    CandlePattern,
     ContextResponse,
     CorrelationMatrix,
     FearGreed,
@@ -84,13 +86,34 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
     fng_raw = fetch_fear_greed()
     news_raw = fetch_news_for_coin(req.coin, limit=5)
 
+    try:
+        atr_last = float(ind.atr.iloc[-1])
+    except Exception:  # noqa: BLE001
+        atr_last = 0.0
+    patterns_raw = detect_patterns(
+        df,
+        lookback=10,
+        support=ind.support,
+        resistance=ind.resistance,
+        atr=atr_last,
+        trend_label=summary.get("trend"),
+    )
+
     extra_context = {
         "htf_trends": htf_raw,
         "fear_greed": fng_raw,
         "news_titles": [n.get("title", "") for n in news_raw][:5],
+        "patterns": patterns_raw,
     }
     analysis = analyze(req.coin, req.timeframe, summary, extra_context=extra_context)
-    chart_b64 = render_chart_b64(req.coin, req.timeframe, ind, signal=analysis.signal)
+    analysis.patterns = [CandlePattern(**p) for p in patterns_raw]
+    chart_b64 = render_chart_b64(
+        req.coin,
+        req.timeframe,
+        ind,
+        signal=analysis.signal,
+        patterns=patterns_raw,
+    )
 
     return AnalyzeResponse(
         analysis=analysis,

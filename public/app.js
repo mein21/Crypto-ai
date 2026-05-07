@@ -161,6 +161,62 @@
     $("error-box").hidden = true;
   }
 
+  function fmtRelativeTs(ts) {
+    if (!ts) return "";
+    const ms = ts * 1000;
+    const diff = Date.now() - ms;
+    if (diff < 0) return "только что";
+    const m = Math.round(diff / 60000);
+    if (m < 60) return `${m} мин назад`;
+    const h = Math.round(diff / 3600000);
+    if (h < 24) return `${h} ч назад`;
+    const d = Math.round(diff / 86400000);
+    return `${d} дн назад`;
+  }
+
+  function patternBiasIcon(bias) {
+    if (bias === "bullish") return "▲";
+    if (bias === "bearish") return "▼";
+    return "●";
+  }
+
+  function patternBiasLabel(bias) {
+    if (bias === "bullish") return "bullish";
+    if (bias === "bearish") return "bearish";
+    return "neutral";
+  }
+
+  function renderPatterns(list) {
+    const ul = $("patterns-list");
+    ul.innerHTML = "";
+    if (!list || !list.length) {
+      const li = document.createElement("li");
+      li.className = "pattern-empty muted";
+      li.textContent = "Свежих паттернов не обнаружено";
+      ul.appendChild(li);
+      return;
+    }
+    list.slice(0, 6).forEach((p) => {
+      const li = document.createElement("li");
+      li.className = "pattern-row " + patternBiasLabel(p.bias);
+      const stars = "★".repeat(p.strength || 1) + "☆".repeat(Math.max(0, 3 - (p.strength || 1)));
+      const when = fmtRelativeTs(p.ts);
+      li.innerHTML = `
+        <div class="pattern-head">
+          <span class="pattern-icon">${patternBiasIcon(p.bias)}</span>
+          <span class="pattern-name">${p.name_ru || p.name || ""}</span>
+          <span class="pattern-strength" title="Сила паттерна">${stars}</span>
+        </div>
+        <div class="pattern-meta">
+          <span class="pattern-bias">${patternBiasLabel(p.bias)}</span>
+          ${when ? `<span class="pattern-when">· ${when}</span>` : ""}
+        </div>
+        <div class="pattern-context">${p.context || ""}</div>
+      `;
+      ul.appendChild(li);
+    });
+  }
+
   function fmtPrice(v) {
     if (v == null || isNaN(v)) return "—";
     const abs = Math.abs(v);
@@ -312,6 +368,8 @@
     if (!lvl.children.length) {
       lvl.innerHTML = `<p class="muted">Уровни не определены</p>`;
     }
+
+    renderPatterns(analysis.patterns || []);
 
     $("narrative").textContent = analysis.narrative || "";
     const risks = $("risks");

@@ -25,6 +25,18 @@ class Signal(BaseModel):
     rationale: str = ""
 
 
+class CandlePattern(BaseModel):
+    name: str
+    name_ru: str
+    bias: Literal["bullish", "bearish", "neutral"] = "neutral"
+    kind: Literal["reversal", "continuation", "indecision"] = "indecision"
+    strength: int = Field(1, ge=1, le=3)
+    base_strength: int = Field(1, ge=1, le=3)
+    ts: int = 0
+    bar_index: int = 0
+    context: str = ""
+
+
 class Analysis(BaseModel):
     coin: str
     timeframe: str
@@ -32,6 +44,7 @@ class Analysis(BaseModel):
     trend: str = ""
     key_levels: dict[str, list[float]] = Field(default_factory=lambda: {"support": [], "resistance": []})
     indicators_summary: dict[str, str] = Field(default_factory=dict)
+    patterns: list[CandlePattern] = Field(default_factory=list)
     signal: Signal = Field(default_factory=Signal)
     narrative: str = ""
     risks: list[str] = Field(default_factory=list)
