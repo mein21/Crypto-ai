@@ -32,6 +32,14 @@ body {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "ss01", "cv11";
+  overflow-x: hidden;
+}
+
+img,
+canvas,
+table,
+pre {
+  max-width: 100%;
 }
 
 .app {
@@ -549,6 +557,54 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+/* Compact "vs BTC" list shown only on phones (the full 10x10 matrix wouldn't
+   fit at 375px without horizontal scroll, so we replace it with a single
+   column ranking each coin against BTC). Hidden on desktop. */
+.corr-mobile {
+  display: none;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.corr-mobile-row {
+  display: grid;
+  grid-template-columns: 44px 1fr 38px;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+}
+.corr-mobile-row:last-child {
+  border-bottom: 0;
+}
+.corr-mobile-coin {
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.corr-mobile-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+.corr-mobile-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: inherit;
+}
+.corr-mobile-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text);
+}
+
 /* --- Multi-TF strip ----------------------------------------------------- */
 
 .htf-strip {
@@ -766,29 +822,21 @@ h1 {
     font-size: 9px;
   }
 
-  /* Correlation: visible scroll hint + sticky first column */
+  /* Correlation: hide the 10x10 matrix, show compact "vs BTC" list instead */
   .corr-wrap {
-    margin-left: -14px;
-    margin-right: -14px;
-    padding: 0 14px 6px;
-    /* iOS momentum scrolling */
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
+    display: none;
   }
-  .corr-table {
-    font-size: 10px;
-    min-width: 480px;
+  .corr-mobile {
+    display: block;
   }
-  .corr-table th,
-  .corr-table td {
-    padding: 4px 3px;
-  }
-  .corr-table tbody th {
-    /* Keep first column visible while scrolling horizontally */
-    position: sticky;
-    left: 0;
-    z-index: 1;
-    box-shadow: 1px 0 0 var(--border);
+  .corr-mobile::before {
+    content: "Корреляция с BTC";
+    display: block;
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
   }
 
   /* Chart card */

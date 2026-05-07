@@ -135,6 +135,36 @@
       tbody.appendChild(tr);
     });
     tbl.appendChild(tbody);
+
+    const mobile = $("corr-mobile");
+    mobile.innerHTML = "";
+    const btcIdx = labels.indexOf("BTC");
+    if (btcIdx !== -1) {
+      labels.forEach((coin, i) => {
+        if (i === btcIdx) return;
+        const v = corr.matrix[i][btcIdx];
+        const li = document.createElement("li");
+        li.className = "corr-mobile-row";
+        const label = document.createElement("span");
+        label.className = "corr-mobile-coin";
+        label.textContent = coin;
+        const bar = document.createElement("span");
+        bar.className = "corr-mobile-bar";
+        const fill = document.createElement("span");
+        fill.className = "corr-mobile-fill";
+        fill.style.width = `${Math.max(2, Math.abs(v) * 100)}%`;
+        fill.style.background = corrColor(v);
+        bar.appendChild(fill);
+        const value = document.createElement("span");
+        value.className = "corr-mobile-value";
+        value.textContent = v.toFixed(2);
+        li.appendChild(label);
+        li.appendChild(bar);
+        li.appendChild(value);
+        mobile.appendChild(li);
+      });
+    }
+
     $("corr-meta").textContent = `${labels.length} монет · окно ${corr.window_days} дней · ${corr.n_observations} наблюдений`;
     return true;
   }
