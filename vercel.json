@@ -1,7 +1,7 @@
 {
   "version": 2,
   "crons": [
-    { "path": "/notify-check", "schedule": "0 */4 * * *" }
+    { "path": "/notify-check", "schedule": "0 8 * * *" }
   ],
   "builds": [
     { "src": "api/index.py", "use": "@vercel/python", "config": { "maxLambdaSize": "250mb" } },
