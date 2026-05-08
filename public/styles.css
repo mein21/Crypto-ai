@@ -754,20 +754,10 @@ h1 {
 }
 
 .best-deal-card {
-  position: relative;
-  background: var(--bg-card);
-  border: 1px solid transparent;
+  background: linear-gradient(var(--bg-card), var(--bg-card)) padding-box,
+    linear-gradient(135deg, #f59e0b, #ef6c00) border-box;
+  border: 2px solid transparent;
   border-radius: 16px;
-  overflow: hidden;
-  background-clip: padding-box;
-}
-.best-deal-card::before {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: 17px;
-  background: linear-gradient(135deg, #f59e0b, #ef6c00);
-  z-index: -1;
 }
 
 .best-deal-header {
