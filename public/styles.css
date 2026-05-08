@@ -730,3 +730,55 @@ h1 {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* --- Tablet & touch optimizations -------------------------------------- */
+
+/* Tablets and below: enlarge tap targets to be finger-friendly (>=44px). */
+@media (max-width: 1024px) {
+  .chip {
+    padding: 11px 18px;
+    font-size: 14px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .chip-row {
+    gap: 8px;
+  }
+  .analyze-btn {
+    min-height: 52px;
+    font-size: 16px;
+    padding: 16px 24px;
+  }
+  .download-link,
+  .signal-badge {
+    padding: 11px 16px;
+    font-size: 13px;
+    min-height: 42px;
+    display: inline-flex;
+    align-items: center;
+  }
+  .header-actions {
+    gap: 12px;
+  }
+}
+
+/* Portrait tablet and below: stack controls so chips and analyze button
+   each get the full row width instead of fighting for space. */
+@media (max-width: 900px) {
+  .controls {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+  .control-group {
+    min-width: 0;
+    width: 100%;
+  }
+  .analyze-btn {
+    width: 100%;
+  }
+  .chart-header {
+    flex-wrap: wrap;
+  }
+}
