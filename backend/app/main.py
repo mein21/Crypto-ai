@@ -24,6 +24,7 @@ from .llm import analyze, analyze_fast
 from .news_enrich import enrich_news
 from .onchain import fetch_onchain
 from .patterns import detect_patterns
+from .telegram_bot import handle_update, set_webhook
 from .telegram_notify import notify_if_worthy
 from .schemas import (
     AnalyzeRequest,
@@ -286,6 +287,28 @@ def notify_check_endpoint(req: BestDealRequest | None = None) -> dict:
         "notified": notified,
         "best_confidence": items[0].confidence if items else 0,
     }
+
+
+@app.post("/telegram-webhook")
+def telegram_webhook(update: dict) -> dict:
+    """Handle incoming Telegram bot updates (messages and callback queries)."""
+    try:
+        handle_update(update)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Telegram webhook error: %s", e)
+    return {"ok": True}
+
+
+@app.get("/set-telegram-webhook")
+def set_tg_webhook() -> dict:
+    """Register the Telegram webhook URL. Call once after deployment."""
+    base = os.getenv("VERCEL_URL", "").strip()
+    if not base:
+        base = os.getenv("BASE_URL", "https://crypto-ai-eta.vercel.app").strip()
+    if not base.startswith("http"):
+        base = f"https://{base}"
+    result = set_webhook(base)
+    return {"ok": True, "result": result, "base_url": base}
 
 
 @app.get("/context", response_model=ContextResponse)
