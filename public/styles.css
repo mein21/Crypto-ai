@@ -730,3 +730,160 @@ h1 {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+/* --- Button group -------------------------------------------------------- */
+
+.btn-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.best-deal-btn {
+  background: linear-gradient(135deg, #f59e0b, #ef6c00);
+  box-shadow: 0 8px 20px rgba(245, 158, 11, 0.3);
+}
+.best-deal-btn:hover {
+  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.45);
+}
+
+/* --- Best deal result ---------------------------------------------------- */
+
+.best-deal-result {
+  margin-bottom: 20px;
+}
+
+.best-deal-card {
+  border-image: linear-gradient(135deg, #f59e0b, #ef6c00) 1;
+  border-width: 1px;
+  border-style: solid;
+  background: var(--bg-card);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.best-deal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 20px 0;
+}
+.best-deal-header h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.best-deal-body {
+  padding: 14px 20px;
+}
+
+.best-deal-main {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.best-deal-main .k {
+  color: var(--muted);
+}
+.best-deal-main .v {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 500;
+  text-align: right;
+}
+.best-deal-main .v.long {
+  color: var(--green);
+}
+.best-deal-main .v.short {
+  color: var(--red);
+}
+.best-deal-main .v.warn {
+  color: var(--yellow);
+}
+
+.best-deal-rationale {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.best-deal-footer {
+  padding: 0 20px 14px;
+  font-size: 12px;
+}
+
+.best-deal-runners {
+  border-top: 1px solid var(--border);
+  padding: 14px 20px 18px;
+}
+.best-deal-runners h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.runners-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.runner-row {
+  display: grid;
+  grid-template-columns: 60px 60px 50px 1fr;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.runner-row:hover {
+  border-color: var(--accent);
+}
+.runner-row.long {
+  border-left: 3px solid var(--green);
+}
+.runner-row.short {
+  border-left: 3px solid var(--red);
+}
+.runner-row.flat {
+  border-left: 3px solid var(--muted);
+}
+
+.runner-coin {
+  font-weight: 700;
+}
+.runner-dir {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.runner-row.long .runner-dir {
+  color: var(--green);
+}
+.runner-row.short .runner-dir {
+  color: var(--red);
+}
+.runner-row.flat .runner-dir {
+  color: var(--muted);
+}
+.runner-conf {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 600;
+  color: var(--yellow);
+}
+.runner-price {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  text-align: right;
+  color: var(--muted);
+}

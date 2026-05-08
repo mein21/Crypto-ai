@@ -92,6 +92,32 @@ class AnalyzeResponse(BaseModel):
     fear_greed: Optional[FearGreed] = None
 
 
+class BestDealRequest(BaseModel):
+    timeframe: Timeframe = "1h"
+
+
+class BestDealItem(BaseModel):
+    coin: str
+    timeframe: str
+    direction: Literal["long", "short", "flat"] = "flat"
+    confidence: int = Field(0, ge=0, le=100)
+    entry: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit_1: Optional[float] = None
+    take_profit_2: Optional[float] = None
+    rationale: str = ""
+    last_price: float = 0.0
+    trend: str = ""
+    rsi: float = 0.0
+    market_regime: str = ""
+
+
+class BestDealResponse(BaseModel):
+    best: Optional[BestDealItem] = None
+    scanned: int = 0
+    all_deals: list[BestDealItem] = Field(default_factory=list)
+
+
 class ContextResponse(BaseModel):
     fear_greed: Optional[FearGreed] = None
     correlation: Optional[CorrelationMatrix] = None

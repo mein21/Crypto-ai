@@ -42,16 +42,46 @@
           <label>Таймфрейм</label>
           <div class="chip-row" id="tf-row"></div>
         </div>
-        <button class="analyze-btn" id="analyze-btn">
-          <span class="btn-content">
-            <span class="btn-icon">⚡</span>
-            <span>Анализ</span>
-          </span>
-          <span class="btn-spinner" hidden>
-            <span class="spinner"></span>
-            <span>Анализирую…</span>
-          </span>
-        </button>
+        <div class="btn-group">
+          <button class="analyze-btn" id="analyze-btn">
+            <span class="btn-content">
+              <span class="btn-icon">⚡</span>
+              <span>Анализ</span>
+            </span>
+            <span class="btn-spinner" hidden>
+              <span class="spinner"></span>
+              <span>Анализирую…</span>
+            </span>
+          </button>
+          <button class="analyze-btn best-deal-btn" id="best-deal-btn">
+            <span class="btn-content">
+              <span class="btn-icon">🏆</span>
+              <span>Лучшая сделка</span>
+            </span>
+            <span class="btn-spinner" hidden>
+              <span class="spinner"></span>
+              <span>Сканирую…</span>
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <section id="best-deal-result" class="best-deal-result" hidden>
+        <div class="card best-deal-card">
+          <div class="best-deal-header">
+            <h2>🏆 Лучшая сделка</h2>
+            <div class="signal-badge" id="best-deal-badge">—</div>
+          </div>
+          <div class="best-deal-body">
+            <div class="best-deal-main" id="best-deal-main"></div>
+            <div class="best-deal-rationale muted" id="best-deal-rationale"></div>
+          </div>
+          <div class="best-deal-footer muted" id="best-deal-footer"></div>
+          <div class="best-deal-runners">
+            <h4>Топ-5 сделок</h4>
+            <div class="runners-list" id="best-deal-runners"></div>
+          </div>
+        </div>
       </section>
 
       <section id="market-context" class="market-context" hidden>

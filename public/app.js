@@ -386,6 +386,118 @@
     window.scrollTo({ top: $("result").offsetTop - 20, behavior: "smooth" });
   }
 
+  function renderBestDealResult(resp) {
+    const section = $("best-deal-result");
+    section.hidden = false;
+    const best = resp.best;
+    if (!best) {
+      $("best-deal-main").innerHTML = `<p class="muted">Не удалось найти подходящую сделку</p>`;
+      $("best-deal-badge").className = "signal-badge flat";
+      $("best-deal-badge").textContent = "—";
+      $("best-deal-rationale").textContent = "";
+      $("best-deal-footer").textContent = `Просканировано монет: ${resp.scanned}`;
+      $("best-deal-runners").innerHTML = "";
+      return;
+    }
+
+    const dirText =
+      best.direction === "long" ? "ЛОНГ" : best.direction === "short" ? "ШОРТ" : "ВНЕ ПОЗИЦИИ";
+    const badge = $("best-deal-badge");
+    badge.className = "signal-badge " + (best.direction || "flat");
+    badge.textContent = `${dirText} · ${best.confidence}%`;
+
+    const main = $("best-deal-main");
+    main.innerHTML = "";
+    const rows = [
+      ["Монета", `${best.coin}/USDT`, ""],
+      ["Цена", fmtPrice(best.last_price), ""],
+      ["Тренд", best.trend, ""],
+      ["Направление", dirText, best.direction || "flat"],
+      ["Вход", fmtPrice(best.entry), "warn"],
+      ["Stop-loss", fmtPrice(best.stop_loss), "short"],
+      ["Take-profit 1", fmtPrice(best.take_profit_1), "long"],
+      ["Take-profit 2", fmtPrice(best.take_profit_2), "long"],
+      ["RSI", best.rsi.toFixed(1), ""],
+      ["Уверенность", `${best.confidence}%`, ""],
+    ];
+    rows.forEach(([k, v, cls]) => {
+      const kEl = document.createElement("div");
+      kEl.className = "k";
+      kEl.textContent = k;
+      const vEl = document.createElement("div");
+      vEl.className = "v " + (cls || "");
+      vEl.textContent = v;
+      main.appendChild(kEl);
+      main.appendChild(vEl);
+    });
+
+    $("best-deal-rationale").textContent = best.rationale || "";
+    $("best-deal-footer").textContent = `Просканировано монет: ${resp.scanned} · Таймфрейм: ${best.timeframe}`;
+
+    const runnersEl = $("best-deal-runners");
+    runnersEl.innerHTML = "";
+    (resp.all_deals || []).forEach((deal) => {
+      const row = document.createElement("div");
+      row.className = "runner-row " + (deal.direction || "flat");
+      const dir =
+        deal.direction === "long" ? "ЛОНГ" : deal.direction === "short" ? "ШОРТ" : "ФЛЭТ";
+      row.innerHTML = `
+        <span class="runner-coin">${deal.coin}</span>
+        <span class="runner-dir">${dir}</span>
+        <span class="runner-conf">${deal.confidence}%</span>
+        <span class="runner-price">${fmtPrice(deal.last_price)}</span>
+      `;
+      row.addEventListener("click", () => {
+        state.coin = deal.coin;
+        buildChips("coin-row", COINS, "coin");
+        analyze();
+      });
+      runnersEl.appendChild(row);
+    });
+
+    window.scrollTo({ top: section.offsetTop - 20, behavior: "smooth" });
+  }
+
+  async function bestDeal() {
+    if (state.loading) return;
+    clearError();
+    state.loading = true;
+    const btn = $("best-deal-btn");
+    btn.disabled = true;
+    btn.querySelector(".btn-content").hidden = true;
+    btn.querySelector(".btn-spinner").hidden = false;
+    try {
+      const r = await fetch(
+        `${API_BASE}/best-deal`,
+        withAuth({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeframe: state.tf }),
+        }),
+      );
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        let msg = `Ошибка ${r.status}`;
+        try {
+          const j = JSON.parse(errText);
+          if (j.detail) msg += `: ${j.detail}`;
+        } catch {
+          if (errText) msg += `: ${errText.slice(0, 200)}`;
+        }
+        throw new Error(msg);
+      }
+      const j = await r.json();
+      renderBestDealResult(j);
+    } catch (e) {
+      showError(`Не удалось найти лучшую сделку — ${e.message}`);
+    } finally {
+      state.loading = false;
+      btn.disabled = false;
+      btn.querySelector(".btn-content").hidden = false;
+      btn.querySelector(".btn-spinner").hidden = true;
+    }
+  }
+
   async function analyze() {
     if (state.loading) return;
     clearError();
@@ -430,6 +542,7 @@
     buildChips("coin-row", COINS, "coin");
     buildChips("tf-row", TFS, "tf");
     $("analyze-btn").addEventListener("click", analyze);
+    $("best-deal-btn").addEventListener("click", bestDeal);
     checkHealth();
     loadContext();
   }

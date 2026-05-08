@@ -25,6 +25,9 @@ from .patterns import detect_patterns
 from .schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
+    BestDealItem,
+    BestDealRequest,
+    BestDealResponse,
     CandlePattern,
     ContextResponse,
     CorrelationMatrix,
@@ -124,6 +127,48 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         news=[NewsItem(**n) for n in news_raw],
         fear_greed=FearGreed(**fng_raw) if fng_raw else None,
     )
+
+
+@app.post("/best-deal", response_model=BestDealResponse)
+def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
+    """Scan all coins on the given timeframe and return the best trading opportunity."""
+    from .data import SYMBOL_MAP
+
+    items: list[BestDealItem] = []
+    for coin in SYMBOL_MAP:
+        try:
+            df = fetch_ohlcv(coin, req.timeframe)
+            if len(df) < 60:
+                continue
+            ind = compute_all(df)
+            summary = ind.summary()
+            analysis = analyze(coin, req.timeframe, summary)
+            sig = analysis.signal
+            items.append(
+                BestDealItem(
+                    coin=coin,
+                    timeframe=req.timeframe,
+                    direction=sig.direction,
+                    confidence=confidence,
+                    entry=sig.entry,
+                    stop_loss=sig.stop_loss,
+                    take_profit_1=sig.take_profit_1,
+                    take_profit_2=sig.take_profit_2,
+                    rationale=sig.rationale,
+                    last_price=float(summary["close"]),
+                    trend=analysis.trend,
+                    rsi=round(float(summary["rsi"]), 1),
+                    market_regime=analysis.market_regime,
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Best-deal scan failed for %s: %s", coin, e)
+            continue
+
+    # Sort by confidence desc, prefer non-flat directions
+    items.sort(key=lambda x: (x.direction != "flat", x.confidence), reverse=True)
+    best = items[0] if items else None
+    return BestDealResponse(best=best, scanned=len(items), all_deals=items[:5])
 
 
 @app.get("/context", response_model=ContextResponse)
