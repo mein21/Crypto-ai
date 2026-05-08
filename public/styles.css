@@ -606,6 +606,38 @@ h1 {
   color: var(--yellow);
 }
 
+.entry-type-badge {
+  display: inline-block;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  margin-left: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--muted);
+  vertical-align: middle;
+  cursor: help;
+}
+.entry-type-badge.market {
+  background: rgba(108, 140, 255, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.entry-type-badge.limit {
+  background: rgba(38, 166, 154, 0.15);
+  border-color: var(--green);
+  color: var(--green);
+}
+.entry-type-badge.stop {
+  background: rgba(255, 213, 79, 0.18);
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
 .rationale {
   margin-top: 10px;
   font-size: 13px;
@@ -1748,4 +1780,212 @@ h1 {
   .chart-header {
     flex-wrap: wrap;
   }
+}
+
+/* --- Volume profile card ----------------------------------------------- */
+
+.vp-card .kv {
+  margin-bottom: 12px;
+}
+.vp-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+}
+.vp-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 56px;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 0;
+}
+.vp-price {
+  color: var(--muted);
+  text-align: right;
+}
+.vp-bar {
+  display: inline-block;
+  height: 8px;
+  background: rgba(108, 140, 255, 0.35);
+  border-radius: 4px;
+  min-width: 1px;
+}
+.vp-share {
+  color: var(--muted);
+  text-align: right;
+}
+.vp-row.vp-va .vp-bar {
+  background: rgba(255, 213, 79, 0.55);
+}
+.vp-row.vp-poc .vp-bar {
+  background: var(--yellow);
+  box-shadow: 0 0 6px rgba(255, 213, 79, 0.55);
+}
+.vp-row.vp-poc .vp-price {
+  color: var(--yellow);
+  font-weight: 700;
+}
+
+/* --- Order flow card --------------------------------------------------- */
+
+.flow-card .muted {
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+/* --- Alignment / sentiment shared bar styling --------------------------- */
+
+.alignment-score,
+.sentiment-score {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.alignment-num,
+.sentiment-num {
+  font-size: 38px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.alignment-num.long,
+.sentiment-num.long {
+  color: var(--green);
+}
+.alignment-num.short,
+.sentiment-num.short {
+  color: var(--red);
+}
+.alignment-num.flat,
+.sentiment-num.flat {
+  color: var(--muted);
+}
+.alignment-label,
+.sentiment-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.alignment-bar,
+.sentiment-bar {
+  height: 8px;
+  background: var(--bg-elev);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.alignment-fill,
+.sentiment-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.alignment-fill.long,
+.sentiment-fill.long {
+  background: linear-gradient(90deg, var(--accent), var(--green));
+}
+.alignment-fill.short,
+.sentiment-fill.short {
+  background: linear-gradient(90deg, var(--accent), var(--red));
+}
+.alignment-fill.flat,
+.sentiment-fill.flat {
+  background: var(--muted);
+}
+
+.alignment-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.alignment-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--bg-elev);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  font-size: 12px;
+}
+.alignment-row.long {
+  border-left-color: var(--green);
+}
+.alignment-row.short {
+  border-left-color: var(--red);
+}
+.alignment-row.flat {
+  border-left-color: var(--muted);
+}
+.alignment-tf {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+}
+.alignment-trend {
+  font-weight: 600;
+}
+.alignment-meta {
+  color: var(--muted);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 11px;
+}
+
+/* --- Strategy / walk-forward card --------------------------------------- */
+
+.strategy-card .kv {
+  margin-bottom: 12px;
+}
+.strategy-windows {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+.strategy-tile {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 10px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.strategy-tile.long {
+  border-left-color: var(--green);
+}
+.strategy-tile.short {
+  border-left-color: var(--red);
+}
+.strategy-tile.flat {
+  border-left-color: var(--muted);
+  opacity: 0.7;
+}
+.strategy-w-tf {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.strategy-w-meta {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text);
 }

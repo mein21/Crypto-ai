@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
-from typing import Optional
+import json
+import time
+from collections import OrderedDict
+from threading import Lock
+from typing import Any, Optional
 
 import matplotlib
 
@@ -14,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from .indicators import IndicatorBundle
+from .order_flow import OrderFlowBundle
 from .schemas import Signal
 
 
@@ -25,6 +31,81 @@ def _format_price(p: float) -> str:
     return f"{p:.4f}"
 
 
+# ---------------------------------------------------------------------------
+# Rendered-PNG cache (G3).
+# Charts only change when a new bar closes or when the trade signal annotated
+# on top changes. Re-rendering on every /analyze call wastes ~300-700ms per
+# request via matplotlib + mplfinance. We key the cache by (coin, tf,
+# last-bar-timestamp, signal+pattern fingerprint).
+# ---------------------------------------------------------------------------
+
+_CHART_CACHE_TTL = 6 * 60 * 60  # 6h — much longer than any timeframe; bar_ts already gates freshness
+_CHART_CACHE_MAX = 64
+_CHART_CACHE: "OrderedDict[str, tuple[float, bytes]]" = OrderedDict()
+_CHART_CACHE_LOCK = Lock()
+
+
+def _signal_fp(signal: Optional[Signal], patterns: Optional[list[dict]]) -> str:
+    """Stable fingerprint of the only annotation inputs that affect the PNG."""
+    s_part: dict[str, Any] = {}
+    if signal is not None:
+        s_part = {
+            "d": signal.direction,
+            "e": signal.entry,
+            "et": signal.entry_type,
+            "sl": signal.stop_loss,
+            "t1": signal.take_profit_1,
+            "t2": signal.take_profit_2,
+            "c": signal.confidence,
+        }
+    p_part: list[dict] = []
+    if patterns:
+        for p in patterns:
+            p_part.append(
+                {
+                    "n": p.get("name"),
+                    "b": p.get("bias"),
+                    "s": p.get("strength"),
+                    "i": p.get("bar_index"),
+                }
+            )
+    blob = json.dumps({"s": s_part, "p": p_part}, sort_keys=True, separators=(",", ":"))
+    return hashlib.md5(blob.encode("utf-8")).hexdigest()  # noqa: S324 (cache key, not security)
+
+
+def _cache_key(coin: str, timeframe: str, bar_ts: int, fp: str) -> str:
+    return f"{coin}|{timeframe}|{bar_ts}|{fp}"
+
+
+def _cache_get(key: str) -> Optional[bytes]:
+    now = time.time()
+    with _CHART_CACHE_LOCK:
+        item = _CHART_CACHE.get(key)
+        if item is None:
+            return None
+        ts, payload = item
+        if now - ts > _CHART_CACHE_TTL:
+            _CHART_CACHE.pop(key, None)
+            return None
+        _CHART_CACHE.move_to_end(key)
+        return payload
+
+
+def _cache_set(key: str, payload: bytes) -> None:
+    with _CHART_CACHE_LOCK:
+        _CHART_CACHE[key] = (time.time(), payload)
+        _CHART_CACHE.move_to_end(key)
+        while len(_CHART_CACHE) > _CHART_CACHE_MAX:
+            _CHART_CACHE.popitem(last=False)
+
+
+def _last_bar_ts(ind: IndicatorBundle) -> int:
+    try:
+        return int(pd.Timestamp(ind.df.index[-1]).timestamp())
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def render_chart(
     coin: str,
     timeframe: str,
@@ -32,7 +113,18 @@ def render_chart(
     signal: Optional[Signal] = None,
     bars: int = 150,
     patterns: Optional[list[dict]] = None,
+    volume_profile: Optional[dict] = None,
+    order_flow: Optional[OrderFlowBundle] = None,
+    use_cache: bool = True,
 ) -> bytes:
+    bar_ts = _last_bar_ts(ind)
+    cache_key: Optional[str] = None
+    if use_cache and bar_ts:
+        cache_key = _cache_key(coin, timeframe, bar_ts, _signal_fp(signal, patterns))
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
     df = ind.df.tail(bars).copy()
     df.index = pd.to_datetime(df.index).tz_convert(None)
     df = df.rename(columns={"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"})
@@ -46,6 +138,12 @@ def render_chart(
     macd_line = ind.macd["macd"].tail(bars)
     macd_sig = ind.macd["signal"].tail(bars)
     macd_hist = ind.macd["hist"].tail(bars)
+
+    cvd_panel: Optional[int] = None
+    cvd_series: Optional[pd.Series] = None
+    if order_flow is not None and order_flow.cvd is not None:
+        cvd_series = order_flow.cvd.tail(bars).astype(float)
+        cvd_panel = 4
 
     addplots = [
         mpf.make_addplot(ema_fast.values, color="#2962ff", width=1.2, panel=0),
@@ -64,6 +162,17 @@ def render_chart(
             alpha=0.6,
         ),
     ]
+
+    if cvd_series is not None and cvd_panel is not None:
+        addplots.append(
+            mpf.make_addplot(
+                cvd_series.values,
+                color="#26c6da",
+                width=1.0,
+                panel=cvd_panel,
+                ylabel="CVD",
+            )
+        )
 
     # Pattern marker overlays (one scatter per bias). mplfinance scatter
     # addplots require numeric arrays — use NaN for gaps, not Python None.
@@ -152,14 +261,20 @@ def render_chart(
         rc={"axes.labelcolor": "#ddd", "xtick.color": "#aaa", "ytick.color": "#aaa", "axes.edgecolor": "#444"},
     )
 
+    panel_ratios = (6, 1.6, 2, 2)
+    figsize = (13, 9)
+    if cvd_panel is not None:
+        panel_ratios = (6, 1.6, 2, 2, 1.6)
+        figsize = (13, 10)
+
     fig, axes = mpf.plot(
         df,
         type="candle",
         style=style,
         addplot=addplots,
         volume=True,
-        panel_ratios=(6, 1.6, 2, 2),
-        figsize=(13, 9),
+        panel_ratios=panel_ratios,
+        figsize=figsize,
         returnfig=True,
         tight_layout=True,
         xrotation=15,
@@ -207,10 +322,15 @@ def render_chart(
         last_idx = len(df) - 1
         if signal.entry:
             ax_main.axhline(signal.entry, color="#ffeb3b", linewidth=1.2, linestyle="-", alpha=0.9)
+            entry_type_ru = {
+                "market": "MKT",
+                "limit": "LIMIT",
+                "stop": "STOP",
+            }.get(signal.entry_type, "MKT")
             ax_main.text(
                 last_idx,
                 signal.entry,
-                f" ENTRY {_format_price(signal.entry)}",
+                f" ENTRY {_format_price(signal.entry)} [{entry_type_ru}]",
                 color="#ffeb3b",
                 fontsize=9,
                 fontweight="bold",
@@ -297,10 +417,68 @@ def render_chart(
         ax_rsi.axhline(30, color="#26a69a", linewidth=0.7, linestyle="--", alpha=0.6)
         ax_rsi.set_ylim(0, 100)
 
+    # Volume profile overlay — POC / VAH / VAL on the right edge of main panel.
+    if volume_profile:
+        try:
+            poc = float(volume_profile["poc"])
+            vah = float(volume_profile["vah"])
+            val = float(volume_profile["val"])
+            ax_main.axhline(poc, color="#fdd835", linewidth=1.4, linestyle="-", alpha=0.85)
+            ax_main.axhline(vah, color="#fdd835", linewidth=0.9, linestyle=":", alpha=0.65)
+            ax_main.axhline(val, color="#fdd835", linewidth=0.9, linestyle=":", alpha=0.65)
+            x_label = len(df) - 1
+            ax_main.text(
+                x_label,
+                poc,
+                f" POC {_format_price(poc)}",
+                color="#fdd835",
+                fontsize=8,
+                fontweight="bold",
+                va="center",
+                ha="left",
+            )
+            ax_main.text(
+                x_label,
+                vah,
+                f" VAH {_format_price(vah)}",
+                color="#fdd835",
+                fontsize=7,
+                va="center",
+                ha="left",
+                alpha=0.85,
+            )
+            ax_main.text(
+                x_label,
+                val,
+                f" VAL {_format_price(val)}",
+                color="#fdd835",
+                fontsize=7,
+                va="center",
+                ha="left",
+                alpha=0.85,
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+
+    # Disclaimer + timezone hint (G5). Chart times are UTC because
+    # df.index is tz_convert'd to UTC-naive above.
+    fig.text(
+        0.01,
+        0.005,
+        "Время на графике — UTC. Не финансовый совет, торговля криптовалютой связана с риском.",
+        color="#888",
+        fontsize=7,
+        ha="left",
+        va="bottom",
+    )
+
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110, facecolor="#0e1117", bbox_inches="tight")
     plt.close(fig)
-    return buf.getvalue()
+    payload = buf.getvalue()
+    if cache_key is not None:
+        _cache_set(cache_key, payload)
+    return payload
 
 
 def render_chart_b64(*args, **kwargs) -> str:

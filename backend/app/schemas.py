@@ -18,11 +18,20 @@ class Level(BaseModel):
 class Signal(BaseModel):
     direction: Literal["long", "short", "flat"] = "flat"
     entry: Optional[float] = None
+    entry_type: Literal["market", "limit", "stop"] = Field(
+        default="market",
+        description=(
+            "How to enter the trade: 'market' = at the current price; 'limit' = "
+            "passive order at entry (long: below close, short: above close); "
+            "'stop' = breakout entry (long: above close, short: below close)."
+        ),
+    )
     stop_loss: Optional[float] = None
     take_profit_1: Optional[float] = None
     take_profit_2: Optional[float] = None
     confidence: int = Field(0, ge=0, le=100)
     rationale: str = ""
+    rr: Optional[float] = Field(default=None, description="Risk:reward to TP1 — populated by validation.")
 
 
 class CandlePattern(BaseModel):
@@ -89,6 +98,88 @@ class CorrelationVsBtc(BaseModel):
     n_observations: int
 
 
+class VolumeProfileBin(BaseModel):
+    price: float
+    volume: float
+    share: float
+
+
+class VolumeProfile(BaseModel):
+    poc: float
+    vah: float
+    val: float
+    bin_size: float
+    n_bins: int
+    lookback_bars: int
+    position: Literal["above_va", "inside_va", "below_va"]
+    distance_to_poc_pct: float
+    hvn: list[float] = Field(default_factory=list)
+    lvn: list[float] = Field(default_factory=list)
+    bins: list[VolumeProfileBin] = Field(default_factory=list)
+
+
+class OrderFlow(BaseModel):
+    cvd_value: float
+    cvd_slope: float
+    buy_pressure_pct: float
+    divergence: Literal["bullish", "bearish", "none"] = "none"
+    divergence_note: str = ""
+
+
+class AlignmentBlock(BaseModel):
+    tf: str
+    weight: float
+    score: float
+    trend: str = ""
+    macd_state: str = ""
+    rsi: Optional[float] = None
+
+
+class Alignment(BaseModel):
+    score: float = 0.0  # 0..100 absolute strength
+    direction: int = 0  # -1 / 0 / +1
+    label: str = ""
+    breakdown: list[AlignmentBlock] = Field(default_factory=list)
+
+
+class SentimentComponents(BaseModel):
+    fear_greed: float = 50.0
+    news: float = 50.0
+    news_breakdown: dict = Field(default_factory=dict)
+    momentum: float = 50.0
+    momentum_pct: float = 0.0
+
+
+class Sentiment(BaseModel):
+    score: float = 50.0
+    label: str = ""
+    components: SentimentComponents = Field(default_factory=SentimentComponents)
+
+
+class StrategyWindowStats(BaseModel):
+    window: int
+    bars: int
+    total_trades: int = 0
+    win_rate: float = 0.0
+    avg_rr: float = 0.0
+    profit_factor: float = 0.0
+    expectancy_atr: float = 0.0
+    longs: int = 0
+    shorts: int = 0
+
+
+class StrategyStats(BaseModel):
+    total_trades: int = 0
+    win_rate: float = 0.0
+    avg_rr: float = 0.0
+    profit_factor: float = 0.0
+    expectancy_atr: float = 0.0
+    longs: int = 0
+    shorts: int = 0
+    lookback_bars: int = 0
+    windows: list[StrategyWindowStats] = Field(default_factory=list)
+
+
 class BtcFees(BaseModel):
     fastest: int = 0
     half_hour: int = 0
@@ -137,6 +228,11 @@ class AnalyzeResponse(BaseModel):
     news: list[NewsItem] = Field(default_factory=list)
     fear_greed: Optional[FearGreed] = None
     onchain: Optional[Onchain] = None
+    volume_profile: Optional[VolumeProfile] = None
+    order_flow: Optional[OrderFlow] = None
+    alignment: Optional[Alignment] = None
+    sentiment: Optional[Sentiment] = None
+    strategy_stats: Optional[StrategyStats] = None
 
 
 class BestDealRequest(BaseModel):
