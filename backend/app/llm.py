@@ -33,11 +33,17 @@ MAX_ATR_PCT = 8.0
 SYSTEM_PROMPT = """Ты — опытный криптотрейдер и технический аналитик. Твоя задача:
 1. Принять JSON со сводкой технических индикаторов и уровней.
 2. Выдать структурированный анализ на русском языке.
-3. Предложить торговую идею с конкретным уровнем входа, стоп-лоссом и двумя тейк-профитами.
+3. Предложить торговую идею с конкретным уровнем входа, типом входа, стоп-лоссом и двумя тейк-профитами.
 4. Указать риски и текущий режим рынка.
 
+ТИПЫ ВХОДА (поле entry_type, обязательное):
+- "market" — вход по рынку у текущей цены close. Используй, когда сигнал актуален «прямо сейчас» и нет смысла ждать. entry должен быть в пределах ±0.5*ATR от close.
+- "limit" — пассивный лимитный ордер, ждём отката к уровню. Для long: entry СТРОГО ниже close (на 0.4–1.5 ATR), у поддержки. Для short: entry СТРОГО выше close (на 0.4–1.5 ATR), у сопротивления.
+- "stop" — вход по пробою (стоп-ордер). Для long: entry СТРОГО выше close (на 0.1–1.0 ATR), за сопротивлением. Для short: entry СТРОГО ниже close (на 0.1–1.0 ATR), за поддержкой.
+- При сомнениях ставь "market". Никогда не комбинируй типы (например, "limit" с entry выше close — ошибка, уйдёт в flat).
+
 ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА (нарушение → ставь direction = "flat"):
-- entry должен быть в пределах ±0.5*ATR от текущей цены close. Не выдумывай уровни далеко от рынка.
+- entry должен соответствовать entry_type (см. выше). Не выдумывай уровни далеко от рынка.
 - Для long: stop_loss < entry < take_profit_1 ≤ take_profit_2.
 - Для short: stop_loss > entry > take_profit_1 ≥ take_profit_2.
 - Stop-loss располагай за ближайшим уровнем (поддержки для long, сопротивления для short) с буфером 0.3-0.7 ATR.
@@ -59,6 +65,7 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
   "signal": {
     "direction": "long" | "short" | "flat",
     "entry": число или null,
+    "entry_type": "market" | "limit" | "stop",
     "stop_loss": число или null,
     "take_profit_1": число или null,
     "take_profit_2": число или null,
@@ -69,7 +76,7 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
   "risks": ["список рисков"]
 }
 
-Пример валидной идеи (для иллюстрации формата, не копировать числа):
+Пример валидной идеи (для иллюстрации формата, не копировать числа). Здесь market — close=63000, entry≈close:
 {
   "market_regime": "тренд",
   "trend": "восходящий",
@@ -78,11 +85,32 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
   "signal": {
     "direction": "long",
     "entry": 63000,
+    "entry_type": "market",
     "stop_loss": 61700,
     "take_profit_1": 64500,
     "take_profit_2": 66000,
     "confidence": 62,
     "rationale": "Цена выше EMA200, MACD расширяется, рядом support 62000."
+  },
+  "narrative": "...",
+  "risks": ["..."]
+}
+
+Пример лимитного входа (close=63500, support 62000 в 1 ATR ниже):
+{
+  "market_regime": "тренд",
+  "trend": "восходящий",
+  "key_levels": {"support": [62000, 60800], "resistance": [64500, 66000]},
+  "indicators_summary": {...},
+  "signal": {
+    "direction": "long",
+    "entry": 62200,
+    "entry_type": "limit",
+    "stop_loss": 61300,
+    "take_profit_1": 64500,
+    "take_profit_2": 66000,
+    "confidence": 58,
+    "rationale": "Тренд вверх, ждём откат к 62000 — лимит выгоднее рынка."
   },
   "narrative": "...",
   "risks": ["..."]
@@ -97,6 +125,7 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
   "signal": {
     "direction": "flat",
     "entry": null,
+    "entry_type": "market",
     "stop_loss": null,
     "take_profit_1": null,
     "take_profit_2": null,
@@ -244,6 +273,63 @@ def _compute_rr(direction: str, entry: float, stop: float, tp: float) -> float |
     return reward / risk
 
 
+# Maximum distance an entry may sit from the current close, expressed in
+# multiples of ATR. Limit/stop entries are allowed to be further than market
+# entries because they explicitly target a different price.
+_ENTRY_DIST_ATR = {
+    "market": 0.5,
+    "limit": 1.5,
+    "stop": 1.5,
+}
+
+
+def _entry_type_consistent(
+    direction: str,
+    entry_type: str,
+    entry: float,
+    close: float,
+    atr_v: float,
+) -> tuple[bool, str]:
+    """Check that entry sits on the correct side of close for its type.
+
+    Returns (ok, reason). When `atr_v <= 0` we only enforce the side
+    relation, not the magnitude.
+    """
+    diff = entry - close
+    max_dist = _ENTRY_DIST_ATR.get(entry_type, 0.5) * atr_v if atr_v > 0 else float("inf")
+    if entry_type == "market":
+        if atr_v > 0 and abs(diff) > max_dist:
+            return False, "entry далеко от текущей цены для market-входа"
+        return True, ""
+    if direction == "long":
+        if entry_type == "limit":
+            if diff >= 0:
+                return False, "limit-вход на лонге должен быть ниже close"
+            if atr_v > 0 and -diff > max_dist:
+                return False, "limit-вход слишком далеко ниже close"
+            return True, ""
+        if entry_type == "stop":
+            if diff <= 0:
+                return False, "stop-вход на лонге должен быть выше close (пробой вверх)"
+            if atr_v > 0 and diff > max_dist:
+                return False, "stop-вход слишком далеко выше close"
+            return True, ""
+    elif direction == "short":
+        if entry_type == "limit":
+            if diff <= 0:
+                return False, "limit-вход на шорте должен быть выше close"
+            if atr_v > 0 and diff > max_dist:
+                return False, "limit-вход слишком далеко выше close"
+            return True, ""
+        if entry_type == "stop":
+            if diff >= 0:
+                return False, "stop-вход на шорте должен быть ниже close (пробой вниз)"
+            if atr_v > 0 and -diff > max_dist:
+                return False, "stop-вход слишком далеко ниже close"
+            return True, ""
+    return False, "неизвестный entry_type"
+
+
 def _flatten(reason: str) -> dict:
     return {
         "direction": "flat",
@@ -315,12 +401,16 @@ def _validate_signal(
             rr=None,
         )
 
-    # Entry must be near current close — within ±0.6 ATR.
-    if atr_v > 0 and abs(entry - close) > 0.6 * atr_v:
-        flat = _flatten("entry далеко от текущей цены")
+    # Entry must sit on the correct side of close for its entry_type and
+    # within a reasonable distance (C2). market = ±0.5 ATR; limit/stop = up
+    # to 1.5 ATR away on the appropriate side.
+    ok, reason = _entry_type_consistent(direction, sig.entry_type, entry, close, atr_v)
+    if not ok:
+        flat = _flatten(reason)
         return Signal(
             direction=flat["direction"],
             entry=flat["entry"],
+            entry_type="market",
             stop_loss=flat["stop_loss"],
             take_profit_1=flat["take_profit_1"],
             take_profit_2=flat["take_profit_2"],
@@ -397,6 +487,7 @@ def _validate_signal(
     return Signal(
         direction=direction,
         entry=entry,
+        entry_type=sig.entry_type,
         stop_loss=stop,
         take_profit_1=tp1,
         take_profit_2=tp2,
@@ -522,6 +613,7 @@ def _rules_based_fallback(
 
     direction = "flat"
     entry: float | None = None
+    entry_type: str = "market"
     stop: float | None = None
     tp1: float | None = None
     tp2: float | None = None
@@ -545,30 +637,84 @@ def _rules_based_fallback(
         )
     elif bullish and support and resistance:
         direction = "long"
-        entry = close
-        # Tightest valid stop — the closer of (just below first support) or
-        # (~1 ATR below entry), but never closer to entry than 0.8 ATR.
-        cand_a = support[0] - atr_v * 0.5
-        cand_b = close - atr_v * 1.0
-        stop = max(cand_a, cand_b)  # closer of the two = larger value (still < close)
-        if stop > close - atr_v * 0.8:
-            stop = close - atr_v * 0.8
-        tp1 = resistance[0]
-        tp2 = resistance[1] if len(resistance) > 1 else None
         confidence = 55
-        rationale_parts.append("EMA-стек вверх, MACD не разворачивается, RSI без перегрева.")
+        dist_to_resistance = resistance[0] - close
+        dist_to_support = close - support[0]
+        if 0 < dist_to_resistance <= 0.4 * atr_v and len(resistance) > 1:
+            # Price right under a key resistance — wait for breakout (C2 stop entry).
+            entry_type = "stop"
+            entry = resistance[0] + 0.1 * atr_v
+            stop = resistance[0] - 0.4 * atr_v
+            if stop > entry - 0.8 * atr_v:
+                stop = entry - 0.8 * atr_v
+            tp1 = resistance[1]
+            tp2 = resistance[2] if len(resistance) > 2 else None
+            rationale_parts.append(
+                f"Лонг по пробою сопротивления {resistance[0]:.4f} (stop-вход)."
+            )
+        elif 0.6 * atr_v < dist_to_support <= 1.5 * atr_v:
+            # Trend is up but price is mid-range — passively wait for pullback (C2 limit entry).
+            entry_type = "limit"
+            entry = support[0] + 0.2 * atr_v
+            stop = support[0] - 0.5 * atr_v
+            if stop > entry - 0.8 * atr_v:
+                stop = entry - 0.8 * atr_v
+            tp1 = resistance[0]
+            tp2 = resistance[1] if len(resistance) > 1 else None
+            rationale_parts.append(
+                f"Лонг лимитом на откате к {support[0]:.4f}."
+            )
+        else:
+            entry_type = "market"
+            entry = close
+            cand_a = support[0] - atr_v * 0.5
+            cand_b = close - atr_v * 1.0
+            stop = max(cand_a, cand_b)
+            if stop > close - atr_v * 0.8:
+                stop = close - atr_v * 0.8
+            tp1 = resistance[0]
+            tp2 = resistance[1] if len(resistance) > 1 else None
+            rationale_parts.append("EMA-стек вверх, MACD не разворачивается, RSI без перегрева.")
     elif bearish and support and resistance:
         direction = "short"
-        entry = close
-        cand_a = resistance[0] + atr_v * 0.5
-        cand_b = close + atr_v * 1.0
-        stop = min(cand_a, cand_b)  # closer of the two = smaller value (still > close)
-        if stop < close + atr_v * 0.8:
-            stop = close + atr_v * 0.8
-        tp1 = support[0]
-        tp2 = support[1] if len(support) > 1 else None
         confidence = 55
-        rationale_parts.append("EMA-стек вниз, MACD не разворачивается, RSI не в перепроданности.")
+        dist_to_support = close - support[0]
+        dist_to_resistance = resistance[0] - close
+        if 0 < dist_to_support <= 0.4 * atr_v and len(support) > 1:
+            # Price right above a key support — wait for breakdown (C2 stop entry).
+            entry_type = "stop"
+            entry = support[0] - 0.1 * atr_v
+            stop = support[0] + 0.4 * atr_v
+            if stop < entry + 0.8 * atr_v:
+                stop = entry + 0.8 * atr_v
+            tp1 = support[1]
+            tp2 = support[2] if len(support) > 2 else None
+            rationale_parts.append(
+                f"Шорт по пробою поддержки {support[0]:.4f} (stop-вход)."
+            )
+        elif 0.6 * atr_v < dist_to_resistance <= 1.5 * atr_v:
+            # Trend is down but price is mid-range — passively wait for retest (C2 limit entry).
+            entry_type = "limit"
+            entry = resistance[0] - 0.2 * atr_v
+            stop = resistance[0] + 0.5 * atr_v
+            if stop < entry + 0.8 * atr_v:
+                stop = entry + 0.8 * atr_v
+            tp1 = support[0]
+            tp2 = support[1] if len(support) > 1 else None
+            rationale_parts.append(
+                f"Шорт лимитом на ретесте {resistance[0]:.4f}."
+            )
+        else:
+            entry_type = "market"
+            entry = close
+            cand_a = resistance[0] + atr_v * 0.5
+            cand_b = close + atr_v * 1.0
+            stop = min(cand_a, cand_b)
+            if stop < close + atr_v * 0.8:
+                stop = close + atr_v * 0.8
+            tp1 = support[0]
+            tp2 = support[1] if len(support) > 1 else None
+            rationale_parts.append("EMA-стек вниз, MACD не разворачивается, RSI не в перепроданности.")
     else:
         rationale_parts.append("Нет согласованных сигналов — ждём подтверждения от уровней.")
 
@@ -651,6 +797,7 @@ def _rules_based_fallback(
     raw_signal = Signal(
         direction=direction,
         entry=entry,
+        entry_type=entry_type,
         stop_loss=stop,
         take_profit_1=tp1,
         take_profit_2=tp2,

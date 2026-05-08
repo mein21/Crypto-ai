@@ -51,6 +51,7 @@ def _signal_fp(signal: Optional[Signal], patterns: Optional[list[dict]]) -> str:
         s_part = {
             "d": signal.direction,
             "e": signal.entry,
+            "et": signal.entry_type,
             "sl": signal.stop_loss,
             "t1": signal.take_profit_1,
             "t2": signal.take_profit_2,
@@ -295,10 +296,15 @@ def render_chart(
         last_idx = len(df) - 1
         if signal.entry:
             ax_main.axhline(signal.entry, color="#ffeb3b", linewidth=1.2, linestyle="-", alpha=0.9)
+            entry_type_ru = {
+                "market": "MKT",
+                "limit": "LIMIT",
+                "stop": "STOP",
+            }.get(signal.entry_type, "MKT")
             ax_main.text(
                 last_idx,
                 signal.entry,
-                f" ENTRY {_format_price(signal.entry)}",
+                f" ENTRY {_format_price(signal.entry)} [{entry_type_ru}]",
                 color="#ffeb3b",
                 fontsize=9,
                 fontweight="bold",
