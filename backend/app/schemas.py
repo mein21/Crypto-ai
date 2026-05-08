@@ -75,9 +75,13 @@ class FearGreed(BaseModel):
     timestamp: Optional[str] = None
 
 
-class CorrelationMatrix(BaseModel):
-    labels: list[str]
-    matrix: list[list[float]]
+class CorrelationPair(BaseModel):
+    coin: str
+    value: float
+
+
+class CorrelationVsBtc(BaseModel):
+    pairs: list[CorrelationPair]
     window_days: int
     n_observations: int
 
@@ -120,4 +124,4 @@ class BestDealResponse(BaseModel):
 
 class ContextResponse(BaseModel):
     fear_greed: Optional[FearGreed] = None
-    correlation: Optional[CorrelationMatrix] = None
+    correlation: Optional[CorrelationVsBtc] = None

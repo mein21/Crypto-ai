@@ -104,38 +104,32 @@
   }
 
   function renderCorrelation(corr) {
-    if (!corr || !corr.labels || !corr.matrix) return false;
+    if (!corr || !corr.pairs || !corr.pairs.length) return false;
     const tbl = $("corr-table");
     tbl.innerHTML = "";
-    const labels = corr.labels;
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
-    headerRow.appendChild(document.createElement("th"));
-    labels.forEach((l) => {
+    ["Монета", "vs BTC"].forEach((t) => {
       const th = document.createElement("th");
-      th.textContent = l;
+      th.textContent = t;
       headerRow.appendChild(th);
     });
     thead.appendChild(headerRow);
     tbl.appendChild(thead);
     const tbody = document.createElement("tbody");
-    labels.forEach((row, i) => {
+    corr.pairs.forEach((p) => {
       const tr = document.createElement("tr");
-      const lh = document.createElement("th");
-      lh.textContent = row;
-      tr.appendChild(lh);
-      labels.forEach((_, j) => {
-        const td = document.createElement("td");
-        const v = corr.matrix[i][j];
-        td.textContent = v.toFixed(2);
-        td.style.background = corrColor(v);
-        if (i === j) td.style.opacity = "0.55";
-        tr.appendChild(td);
-      });
+      const th = document.createElement("th");
+      th.textContent = p.coin;
+      tr.appendChild(th);
+      const td = document.createElement("td");
+      td.textContent = p.value.toFixed(3);
+      td.style.background = corrColor(p.value);
+      tr.appendChild(td);
       tbody.appendChild(tr);
     });
     tbl.appendChild(tbody);
-    $("corr-meta").textContent = `${labels.length} монет · окно ${corr.window_days} дней · ${corr.n_observations} наблюдений`;
+    $("corr-meta").textContent = `${corr.pairs.length} монет · окно ${corr.window_days} дней · ${corr.n_observations} наблюдений`;
     return true;
   }
 

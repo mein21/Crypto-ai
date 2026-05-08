@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .chart import render_chart_b64
 from .context import (
-    fetch_correlation_matrix,
+    fetch_correlation_vs_btc,
     fetch_fear_greed,
     fetch_higher_tf_trends,
     fetch_news_for_coin,
@@ -30,7 +30,7 @@ from .schemas import (
     BestDealResponse,
     CandlePattern,
     ContextResponse,
-    CorrelationMatrix,
+    CorrelationVsBtc,
     FearGreed,
     HtfTrend,
     NewsItem,
@@ -172,10 +172,10 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
 @app.get("/context", response_model=ContextResponse)
 def context_endpoint() -> ContextResponse:
     fng = fetch_fear_greed()
-    corr = fetch_correlation_matrix(window_days=30)
+    corr = fetch_correlation_vs_btc(window_days=30)
     return ContextResponse(
         fear_greed=FearGreed(**fng) if fng else None,
-        correlation=CorrelationMatrix(**corr) if corr else None,
+        correlation=CorrelationVsBtc(**corr) if corr else None,
     )
 
 

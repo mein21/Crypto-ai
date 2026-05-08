@@ -617,9 +617,8 @@ h1 {
 .corr-table {
   border-collapse: collapse;
   font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 11px;
+  font-size: 12px;
   width: 100%;
-  min-width: 540px;
 }
 .corr-table th,
 .corr-table td {
