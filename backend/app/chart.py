@@ -65,14 +65,15 @@ def render_chart(
         ),
     ]
 
-    # Pattern marker overlays (one scatter per bias).
+    # Pattern marker overlays (one scatter per bias). mplfinance scatter
+    # addplots require numeric arrays — use NaN for gaps, not Python None.
     n_bars = len(df)
-    bull_marks: list[Optional[float]] = [None] * n_bars
-    bear_marks: list[Optional[float]] = [None] * n_bars
-    neutral_marks: list[Optional[float]] = [None] * n_bars
+    nan = float("nan")
+    bull_marks: list[float] = [nan] * n_bars
+    bear_marks: list[float] = [nan] * n_bars
+    neutral_marks: list[float] = [nan] * n_bars
     pattern_label: Optional[tuple[int, str, str]] = None  # (bar_pos, name_ru, bias)
     if patterns:
-        # Pick the most significant recent pattern for the label.
         ranked = sorted(
             patterns,
             key=lambda p: (p.get("strength", 1), -abs(p.get("bar_index", -1))),
@@ -89,22 +90,23 @@ def render_chart(
             pad = (high - low) * 0.6 if high > low else high * 0.002
             if bias == "bullish":
                 v = low - pad
-                bull_marks[pos] = min(bull_marks[pos], v) if bull_marks[pos] is not None else v
+                cur = bull_marks[pos]
+                bull_marks[pos] = v if np.isnan(cur) else min(cur, v)
             elif bias == "bearish":
                 v = high + pad
-                bear_marks[pos] = max(bear_marks[pos], v) if bear_marks[pos] is not None else v
+                cur = bear_marks[pos]
+                bear_marks[pos] = v if np.isnan(cur) else max(cur, v)
             else:
                 v = high + pad
-                neutral_marks[pos] = (
-                    max(neutral_marks[pos], v) if neutral_marks[pos] is not None else v
-                )
+                cur = neutral_marks[pos]
+                neutral_marks[pos] = v if np.isnan(cur) else max(cur, v)
         if ranked:
             top = ranked[0]
             top_pos = n_bars + int(top.get("bar_index", -1))
             if 0 <= top_pos < n_bars:
                 pattern_label = (top_pos, top.get("name_ru", top.get("name", "")), top.get("bias", "neutral"))
 
-        if any(v is not None for v in bull_marks):
+        if any(not np.isnan(v) for v in bull_marks):
             addplots.append(
                 mpf.make_addplot(
                     bull_marks,
@@ -115,7 +117,7 @@ def render_chart(
                     panel=0,
                 )
             )
-        if any(v is not None for v in bear_marks):
+        if any(not np.isnan(v) for v in bear_marks):
             addplots.append(
                 mpf.make_addplot(
                     bear_marks,
@@ -126,7 +128,7 @@ def render_chart(
                     panel=0,
                 )
             )
-        if any(v is not None for v in neutral_marks):
+        if any(not np.isnan(v) for v in neutral_marks):
             addplots.append(
                 mpf.make_addplot(
                     neutral_marks,
