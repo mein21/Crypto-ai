@@ -82,13 +82,23 @@
   }
 
   function corrColor(v) {
-    // map [-1, 1] → rgb gradient red ↔ neutral ↔ green
-    const t = (v + 1) / 2; // 0..1
-    const r = Math.round(220 * (1 - t) + 60 * t);
-    const g = Math.round(60 * (1 - t) + 200 * t);
-    const b = 90;
-    const a = 0.18 + Math.abs(v) * 0.55;
-    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(2)})`;
+    // Monochrome heatmap matching the aurora palette: stronger |v| → brighter
+    // white tint; sign is reflected by hue (positive → neutral white, negative
+    // → very subtle warm tint). Works in both light and dark themes via
+    // alpha-on-current background.
+    const isLight = document.documentElement.getAttribute("data-theme") === "light";
+    const mag = Math.min(1, Math.abs(v));
+    const baseAlpha = 0.04 + 0.22 * mag;
+    if (isLight) {
+      // Black ink on white
+      return v >= 0
+        ? `rgba(0, 0, 0, ${baseAlpha})`
+        : `rgba(120, 60, 60, ${baseAlpha + 0.02})`;
+    }
+    // White ink on black
+    return v >= 0
+      ? `rgba(255, 255, 255, ${baseAlpha})`
+      : `rgba(255, 200, 200, ${baseAlpha + 0.02})`;
   }
 
   function renderFearGreed(fng) {
@@ -246,29 +256,147 @@
     strip.hidden = false;
   }
 
+  const IMPACT_LABEL = { high: "высокое", medium: "среднее", low: "низкое" };
+  const TREND_LABEL = { bullish: "бычий", bearish: "медвежий", neutral: "нейтр." };
+  const TREND_ARROW = { bullish: "▲", bearish: "▼", neutral: "—" };
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   function renderNews(news) {
     const ul = $("news-list");
     ul.innerHTML = "";
     if (!news || !news.length) {
-      ul.innerHTML = `<li class="muted">Свежих новостей не найдено</li>`;
+      ul.innerHTML = `<li class="news-empty">Свежих новостей не найдено</li>`;
       return;
     }
     news.forEach((n) => {
       const li = document.createElement("li");
-      const date = n.ts ? new Date(n.ts * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "";
+      li.className = "news-item";
+      const date = n.ts
+        ? new Date(n.ts * 1000).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" })
+        : "";
+      const ru = (n.title_ru || "").trim();
+      const orig = (n.title || "").trim();
+      const titleMain = ru || orig;
+      const showOrig = ru && orig && ru !== orig;
+      const initial = (state.coin || "?").slice(0, 1);
+      const thumb = n.image
+        ? `<img src="${escapeHtml(n.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" />`
+        : `<span class="news-thumb-fallback">${escapeHtml(initial)}</span>`;
+      const badges = [];
+      if (n.impact) {
+        badges.push(
+          `<span class="news-badge impact-${escapeHtml(n.impact)}">
+             <span class="badge-key">влияние</span> ${escapeHtml(IMPACT_LABEL[n.impact] || n.impact)}
+           </span>`,
+        );
+      }
+      if (n.sentiment) {
+        badges.push(
+          `<span class="news-badge trend-${escapeHtml(n.sentiment)}">
+             <span class="arrow">${TREND_ARROW[n.sentiment] || ""}</span>
+             ${escapeHtml(TREND_LABEL[n.sentiment] || n.sentiment)}
+           </span>`,
+        );
+      }
       li.innerHTML = `
-        <a href="${n.url}" target="_blank" rel="noreferrer noopener">${n.title}</a>
-        <div class="news-meta">${n.source || ""} · ${date}</div>
+        <a class="news-link" href="${escapeHtml(n.url)}" target="_blank" rel="noreferrer noopener">
+          <div class="news-thumb">${thumb}</div>
+          <div class="news-body">
+            <div class="news-title">${escapeHtml(titleMain)}</div>
+            ${showOrig ? `<div class="news-orig">${escapeHtml(orig)}</div>` : ""}
+            <div class="news-meta">${escapeHtml(n.source || "")}${date ? " · " + escapeHtml(date) : ""}</div>
+          </div>
+          ${badges.length ? `<div class="news-badges">${badges.join("")}</div>` : ""}
+        </a>
       `;
       ul.appendChild(li);
     });
   }
 
+  function congestionLevel(pct) {
+    if (pct == null) return { tone: "muted", label: "—" };
+    if (pct >= 80) return { tone: "short", label: "перегружено" };
+    if (pct >= 50) return { tone: "warn", label: "повышенная" };
+    return { tone: "long", label: "спокойно" };
+  }
+
+  function gasLevel(gwei) {
+    if (gwei == null) return { tone: "muted", label: "—" };
+    if (gwei >= 50) return { tone: "short", label: "высокий" };
+    if (gwei >= 15) return { tone: "warn", label: "средний" };
+    return { tone: "long", label: "низкий" };
+  }
+
+  function btcFeeLevel(satvb) {
+    if (satvb == null) return { tone: "muted", label: "—" };
+    if (satvb >= 50) return { tone: "short", label: "высокие" };
+    if (satvb >= 15) return { tone: "warn", label: "средние" };
+    return { tone: "long", label: "спокойные" };
+  }
+
+  function renderOnchain(coin, onchain) {
+    const card = $("onchain-card");
+    const grid = $("onchain-grid");
+    grid.innerHTML = "";
+    if (!onchain) {
+      card.hidden = true;
+      return;
+    }
+    const tile = (label, value, sub, tone) => {
+      const el = document.createElement("div");
+      el.className = "onchain-tile " + (tone || "");
+      el.innerHTML = `
+        <div class="onchain-label">${label}</div>
+        <div class="onchain-value">${value}</div>
+        <div class="onchain-sub">${sub || ""}</div>
+      `;
+      grid.appendChild(el);
+    };
+    if (coin === "BTC" && onchain.btc) {
+      const b = onchain.btc;
+      $("onchain-title").textContent = "Он-чейн · Bitcoin";
+      $("onchain-source").textContent = "Источник: mempool.space · обновляется каждые 3 мин";
+      const fee = b.fees_sat_per_vb || {};
+      const lvl = btcFeeLevel(fee.fastest);
+      tile("Комиссии (sat/vB)", `${fee.fastest}/${fee.half_hour}/${fee.hour}`, `fastest · 30 min · 1 h · ${lvl.label}`, lvl.tone);
+      tile("Мемпул", `${b.mempool_count.toLocaleString("ru-RU")} tx`, `${b.mempool_vsize_mb} MB · ${b.mempool_total_fee_btc} BTC fee`, "");
+      tile("Хэшрейт", b.hashrate_eh != null ? `${b.hashrate_eh} EH/s` : "—", "среднее за 3 дня", "long");
+      const sign = b.difficulty_change_pct >= 0 ? "+" : "";
+      tile("Сложность", `${b.difficulty_progress_pct}%`, `до ретаргета ${b.blocks_to_retarget} блоков · ${sign}${b.difficulty_change_pct}%`, b.difficulty_change_pct >= 0 ? "long" : "short");
+      tile("Высота блока", b.block_height.toLocaleString("ru-RU"), "последний блок BTC", "");
+      card.hidden = false;
+      return;
+    }
+    if (coin === "ETH" && onchain.eth) {
+      const e = onchain.eth;
+      $("onchain-title").textContent = "Он-чейн · Ethereum";
+      $("onchain-source").textContent = "Источник: публичный JSON-RPC · обновляется каждые 2 мин";
+      const gas = e.gas_gwei || {};
+      const gl = gasLevel(gas.standard);
+      tile("Газ (gwei)", `${gas.slow} / ${gas.standard} / ${gas.fast}`, `slow · standard · fast · ${gl.label}`, gl.tone);
+      tile("Base fee", `${e.base_fee_gwei} gwei`, "EIP-1559 базовая ставка", "");
+      const cl = congestionLevel(e.congestion_pct);
+      tile("Загрузка блоков", e.congestion_pct != null ? `${e.congestion_pct}%` : "—", `средняя за 10 блоков · ${cl.label}`, cl.tone);
+      tile("Высота блока", e.block_number.toLocaleString("ru-RU"), "последний блок ETH", "");
+      card.hidden = false;
+      return;
+    }
+    card.hidden = true;
+  }
+
   function renderResult(resp) {
-    const { analysis, chart_png_b64, indicators, last_price, htf_trends, news, fear_greed } = resp;
+    const { analysis, chart_png_b64, indicators, last_price, htf_trends, news, fear_greed, onchain } = resp;
     $("result").hidden = false;
     renderHtfStrip(htf_trends);
     renderNews(news);
+    renderOnchain(analysis.coin, onchain);
     if (fear_greed) {
       renderFearGreed(fear_greed);
       $("market-context").hidden = false;
@@ -292,12 +420,27 @@
 
     const idea = $("trade-idea");
     idea.innerHTML = "";
+    const rr = (target) => {
+      if (
+        sig.entry == null ||
+        sig.stop_loss == null ||
+        target == null ||
+        sig.entry === sig.stop_loss
+      )
+        return null;
+      const sign = sig.direction === "short" ? -1 : 1;
+      return ((target - sig.entry) / Math.abs(sig.entry - sig.stop_loss)) * sign;
+    };
+    const rrText = (target) => {
+      const v = rr(target);
+      return v == null ? "" : ` · RR ${v.toFixed(2)}`;
+    };
     const rows = [
       ["Направление", dirText, sig.direction || "flat"],
       ["Вход", fmtPrice(sig.entry), "warn"],
       ["Stop-loss", fmtPrice(sig.stop_loss), "short"],
-      ["Take-profit 1", fmtPrice(sig.take_profit_1), "long"],
-      ["Take-profit 2", fmtPrice(sig.take_profit_2), "long"],
+      ["Take-profit 1", `${fmtPrice(sig.take_profit_1)}${rrText(sig.take_profit_1)}`, "long"],
+      ["Take-profit 2", `${fmtPrice(sig.take_profit_2)}${rrText(sig.take_profit_2)}`, "long"],
       ["Уверенность", `${sig.confidence ?? 0}%`, ""],
     ];
     rows.forEach(([k, v, cls]) => {
@@ -532,7 +675,23 @@
     }
   }
 
+  function setupThemeToggle() {
+    const btn = $("theme-toggle");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const cur = document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+      const next = cur === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      try {
+        localStorage.setItem("theme", next);
+      } catch (e) {
+        // ignore quota / privacy-mode errors
+      }
+    });
+  }
+
   function init() {
+    setupThemeToggle();
     buildChips("coin-row", COINS, "coin");
     buildChips("tf-row", TFS, "tf");
     $("analyze-btn").addEventListener("click", analyze);

@@ -27,7 +27,8 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
 ВАЖНО:
 - Используй уровни поддержки/сопротивления из входных данных.
 - Stop-loss всегда должен быть за ближайшим уровнем поддержки (для long) или сопротивления (для short).
-- Take-profit ставь у следующих уровней.
+- Take-profit-1 должен давать соотношение риск/прибыль (RR) ≈ 1.5: |TP1 − entry| / |entry − SL| ≈ 1.5 (допустимо 1.3–1.7). Если ближайший уровень даёт RR заметно меньше — отодвинь TP1 дальше; если сильно больше — выбирай ближе.
+- Take-profit-2 ставь дальше TP1 с RR ≈ 2.5 (допустимо 2.0–3.5).
 - Если рынок неопределённый — выбирай direction = "flat" и не предлагай вход.
 - confidence — целое от 0 до 100, отражает уверенность в идее.
 - Если переданы свежие свечные паттерны — обязательно упомяни их в narrative и учти при выборе direction/confidence: сильные разворотные паттерны у уровней (Bullish/Bearish Engulfing, Morning/Evening Star, Hammer/Shooting Star у S/R) — серьёзный аргумент; продолжающие паттерны (Marubozu, Three White Soldiers) подтверждают тренд; Doji/Spinning Top — повод снизить уверенность.
@@ -83,6 +84,27 @@ def _build_user_prompt(
         news = [t for t in (extra.get("news_titles") or []) if t]
         if news:
             parts.append("\nСвежие заголовки новостей:\n- " + "\n- ".join(news[:5]))
+        onchain = extra.get("onchain") or {}
+        coin = extra.get("coin", "")
+        if onchain and coin == "BTC":
+            fees = onchain.get("fees_sat_per_vb", {})
+            parts.append(
+                "\nОн-чейн (Bitcoin):\n"
+                f"  • Комиссии sat/vB: fastest {fees.get('fastest')}, halfHour {fees.get('half_hour')}, hour {fees.get('hour')}, economy {fees.get('economy')}\n"
+                f"  • Мемпул: {onchain.get('mempool_count')} tx, {onchain.get('mempool_vsize_mb')} MB\n"
+                f"  • Хэшрейт: {onchain.get('hashrate_eh')} EH/s\n"
+                f"  • Прогресс эпохи сложности: {onchain.get('difficulty_progress_pct')}% (расчётное изменение {onchain.get('difficulty_change_pct')}%)\n"
+                f"  • Высота блока: {onchain.get('block_height')}"
+            )
+        if onchain and coin == "ETH":
+            gas = onchain.get("gas_gwei", {})
+            parts.append(
+                "\nОн-чейн (Ethereum):\n"
+                f"  • Газ gwei: slow {gas.get('slow')}, standard {gas.get('standard')}, fast {gas.get('fast')}\n"
+                f"  • Base fee: {onchain.get('base_fee_gwei')} gwei\n"
+                f"  • Загрузка блоков (10 блоков): {onchain.get('congestion_pct')}%\n"
+                f"  • Блок: {onchain.get('block_number')}"
+            )
         patterns = extra.get("patterns") or []
         if patterns:
             ps = patterns_summary_for_prompt(patterns, limit=6)
@@ -93,9 +115,11 @@ def _build_user_prompt(
                 )
     parts.append(
         "\nУчти контекст старших ТФ (если они идут против анализируемого ТФ — снижай уверенность),"
-        " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность), заголовки новостей"
-        " (упомяни их в narrative, если они существенны) и свежие свечные паттерны."
-        " Сделай анализ и торговую идею. Ответь ТОЛЬКО JSON по указанной схеме."
+        " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность), заголовки новостей,"
+        " он-чейн метрики (для BTC: высокие комиссии и забитый мемпул — признак ажиотажа; низкие — спокойствия;"
+        " для ETH: газ выше 50 gwei — высокий спрос, ниже 15 — затишье) и свежие свечные паттерны."
+        " Упомяни их в narrative, если существенны. Сделай анализ и торговую идею."
+        " Ответь ТОЛЬКО JSON по указанной схеме."
     )
     return "\n".join(parts)
 
@@ -194,6 +218,58 @@ def _gemini_analyze(
     except Exception as e:  # noqa: BLE001
         log.warning("Gemini analysis failed: %s", e)
         return None
+
+
+TP1_RR_TARGET = 1.5
+TP2_RR_TARGET = 2.5
+TP1_RR_BAND = (1.3, 1.7)
+TP2_RR_BAND = (2.0, 3.5)
+
+
+def _round_price(value: float, ref: float) -> float:
+    """Round price to a sensible precision based on magnitude (crypto prices vary 6+ orders)."""
+    if ref >= 1000:
+        return round(value, 2)
+    if ref >= 10:
+        return round(value, 4)
+    return round(value, 6)
+
+
+def _enforce_rr_targets(signal: Signal) -> Signal:
+    """Post-process LLM/rules signal so TP1 lands inside RR band [1.3, 1.7] and TP2 inside [2.0, 3.5].
+
+    If the LLM returned values outside the band (or missing TP2), we recompute relative to entry+stop
+    so the user always sees a trade idea with a sane reward/risk profile.
+    """
+    if signal.direction not in {"long", "short"}:
+        return signal
+    entry = signal.entry
+    stop = signal.stop_loss
+    if entry is None or stop is None:
+        return signal
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return signal
+    sign = 1 if signal.direction == "long" else -1
+
+    def rr(target: float | None) -> float | None:
+        if target is None:
+            return None
+        return (target - entry) / risk * sign
+
+    tp1_rr = rr(signal.take_profit_1)
+    if tp1_rr is None or not (TP1_RR_BAND[0] <= tp1_rr <= TP1_RR_BAND[1]):
+        signal.take_profit_1 = _round_price(entry + sign * risk * TP1_RR_TARGET, entry)
+
+    tp2_rr = rr(signal.take_profit_2)
+    needs_tp2 = (
+        tp2_rr is None
+        or tp2_rr <= TP1_RR_TARGET
+        or not (TP2_RR_BAND[0] <= tp2_rr <= TP2_RR_BAND[1])
+    )
+    if needs_tp2:
+        signal.take_profit_2 = _round_price(entry + sign * risk * TP2_RR_TARGET, entry)
+    return signal
 
 
 def _rules_based_fallback(
@@ -318,5 +394,8 @@ def analyze(
     for provider in (_groq_analyze, _gemini_analyze):
         result = provider(coin, timeframe, summary, extra_context)
         if result is not None:
+            result.signal = _enforce_rr_targets(result.signal)
             return result
-    return _rules_based_fallback(coin, timeframe, summary, extra_context)
+    fallback = _rules_based_fallback(coin, timeframe, summary, extra_context)
+    fallback.signal = _enforce_rr_targets(fallback.signal)
+    return fallback

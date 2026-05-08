@@ -3,29 +3,51 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Crypto AI Analyzer</title>
     <meta name="description" content="ИИ-анализ криптовалют: график с разметкой и торговая идея в один клик" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          if (t !== "light" && t !== "dark") t = "dark";
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
   <body>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Переключить тему" title="Переключить тему">
+      <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="4"/>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+      </svg>
+      <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    </button>
     <div class="app">
       <header class="hero">
         <div class="brand">
           <div class="logo">⌬</div>
-          <div>
-            <h1>Crypto AI Analyzer</h1>
-            <p class="subtitle">
-              Тех. анализ + ИИ-интерпретация в один клик. Свечи, EMA, RSI, MACD,
-              уровни поддержки/сопротивления и торговая идея с уровнями входа,
-              стопа и тейков.
-            </p>
-          </div>
+          <h1>Crypto AI Analyzer</h1>
+          <p class="subtitle">
+            Тех. анализ + ИИ-интерпретация в один клик. Свечи, EMA, RSI, MACD,
+            уровни поддержки/сопротивления и торговая идея с уровнями входа,
+            стопа и тейков.
+          </p>
         </div>
         <div class="status" id="status">
           <span class="dot" id="status-dot"></span>
@@ -113,8 +135,9 @@
           </div>
           <div class="corr-wrap">
             <table class="corr-table" id="corr-table"></table>
-            <p class="muted" id="corr-meta">—</p>
           </div>
+          <ul class="corr-mobile" id="corr-mobile"></ul>
+          <p class="muted" id="corr-meta">—</p>
         </div>
       </section>
 
@@ -171,6 +194,12 @@
             <h3>Новости по монете</h3>
             <p class="muted">Источник: Cointelegraph RSS</p>
             <ul class="news-list" id="news-list"></ul>
+          </div>
+
+          <div class="card onchain-card" id="onchain-card" hidden>
+            <h3 id="onchain-title">Он-чейн</h3>
+            <p class="muted" id="onchain-source">—</p>
+            <div class="onchain-grid" id="onchain-grid"></div>
           </div>
         </div>
 

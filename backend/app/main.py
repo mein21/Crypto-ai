@@ -21,6 +21,8 @@ from .context import (
 from .data import SYMBOL_MAP, fetch_ohlcv
 from .indicators import compute_all
 from .llm import analyze
+from .news_enrich import enrich_news
+from .onchain import fetch_onchain
 from .patterns import detect_patterns
 from .schemas import (
     AnalyzeRequest,
@@ -28,12 +30,15 @@ from .schemas import (
     BestDealItem,
     BestDealRequest,
     BestDealResponse,
+    BtcOnchain,
     CandlePattern,
     ContextResponse,
     CorrelationVsBtc,
+    EthOnchain,
     FearGreed,
     HtfTrend,
     NewsItem,
+    Onchain,
 )
 
 load_dotenv()
@@ -87,7 +92,8 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
     # Auxiliary context — none of these should fail the request.
     htf_raw = fetch_higher_tf_trends(req.coin, req.timeframe)
     fng_raw = fetch_fear_greed()
-    news_raw = fetch_news_for_coin(req.coin, limit=5)
+    news_raw = enrich_news(req.coin, fetch_news_for_coin(req.coin, limit=5))
+    onchain_raw = fetch_onchain(req.coin)
 
     try:
         atr_last = float(ind.atr.iloc[-1])
@@ -105,7 +111,9 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
     extra_context = {
         "htf_trends": htf_raw,
         "fear_greed": fng_raw,
-        "news_titles": [n.get("title", "") for n in news_raw][:5],
+        "news_titles": [n.get("title_ru") or n.get("title", "") for n in news_raw][:5],
+        "onchain": onchain_raw,
+        "coin": req.coin,
         "patterns": patterns_raw,
     }
     analysis = analyze(req.coin, req.timeframe, summary, extra_context=extra_context)
@@ -118,6 +126,12 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         patterns=patterns_raw,
     )
 
+    onchain_obj: Onchain | None = None
+    if onchain_raw and req.coin == "BTC":
+        onchain_obj = Onchain(btc=BtcOnchain(**onchain_raw))
+    elif onchain_raw and req.coin == "ETH":
+        onchain_obj = Onchain(eth=EthOnchain(**onchain_raw))
+
     return AnalyzeResponse(
         analysis=analysis,
         chart_png_b64=chart_b64,
@@ -126,6 +140,7 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         htf_trends=[HtfTrend(**h) for h in htf_raw],
         news=[NewsItem(**n) for n in news_raw],
         fear_greed=FearGreed(**fng_raw) if fng_raw else None,
+        onchain=onchain_obj,
     )
 
 
