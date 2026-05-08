@@ -18,6 +18,14 @@ class Level(BaseModel):
 class Signal(BaseModel):
     direction: Literal["long", "short", "flat"] = "flat"
     entry: Optional[float] = None
+    entry_type: Literal["market", "limit", "stop"] = Field(
+        default="market",
+        description=(
+            "How to enter the trade: 'market' = at the current price; 'limit' = "
+            "passive order at entry (long: below close, short: above close); "
+            "'stop' = breakout entry (long: above close, short: below close)."
+        ),
+    )
     stop_loss: Optional[float] = None
     take_profit_1: Optional[float] = None
     take_profit_2: Optional[float] = None
