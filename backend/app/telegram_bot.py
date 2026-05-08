@@ -248,17 +248,107 @@ def handle_update(update: dict) -> None:
 
 
 def _handle_watches_info(chat_id: int | str) -> None:
-    text = (
-        "*\U0001f441 Отслеживание SL/TP*\n\n"
-        "Как работает:\n"
-        "1. Запустите анализ или лучшую сделку на сайте\n"
-        "2. Нажмите кнопку *\U0001f4cc Отслеживать*\n"
-        "3. Сайт будет проверять цену каждые 10 секунд\n"
-        "4. При достижении SL или TP вам придёт уведомление в Telegram\n\n"
-        "\u2757 _Важно: отслеживание работает пока открыта вкладка сайта в браузере._\n\n"
-        "Сайт: [crypto-ai-eta.vercel.app](https://crypto-ai-eta.vercel.app)"
-    )
-    _send(chat_id, text, _main_menu_kb())
+    """Fetch active watches, run analysis, and show TP/SL probabilities."""
+    from .telegram_notify import _fmt_price
+
+    # Try to get analyzed watches from the backend
+    try:
+        base_url = os.getenv("BASE_URL", "https://crypto-ai-eta.vercel.app").strip()
+        if not base_url.startswith("http"):
+            base_url = f"https://{base_url}"
+        resp = httpx.post(f"{base_url}/watches/analyze", timeout=30)
+        data = resp.json()
+        watches = data.get("watches", [])
+    except Exception as exc:
+        log.warning("Failed to fetch watches analysis: %s", exc)
+        watches = []
+
+    if not watches:
+        text = (
+            "*\U0001f441 Отслеживание SL/TP*\n\n"
+            "\U0001f6ab Нет активных отслеживаний.\n\n"
+            "Как начать:\n"
+            "1. Запустите анализ на сайте\n"
+            "2. Нажмите *\U0001f4cc Отслеживать*\n"
+            "3. Бот будет показывать шансы TP/SL\n\n"
+            "\u2757 _Отслеживание работает пока открыта вкладка сайта._\n"
+            "Сайт: [crypto-ai-eta.vercel.app](https://crypto-ai-eta.vercel.app)"
+        )
+        _send(chat_id, text, _main_menu_kb())
+        return
+
+    for w in watches:
+        if w.get("error"):
+            continue
+
+        coin = w.get("coin", "?")
+        tf = w.get("timeframe", "?")
+        direction = w.get("direction", "flat")
+        dir_emoji = {"long": "\U0001f7e2 \u041b\u041e\u041d\u0413", "short": "\U0001f534 \u0428\u041e\u0420\u0422"}.get(direction, "\u26aa \u0424\u041b\u042d\u0422")
+        entry = w.get("entry")
+        stop_loss = w.get("stop_loss")
+        tp1 = w.get("take_profit_1")
+        tp2 = w.get("take_profit_2")
+        tp1_hit = w.get("tp1_hit", False)
+        current_price = w.get("current_price")
+        pnl_pct = w.get("pnl_pct", 0)
+        tp_prob = w.get("tp_probability", 50)
+        sl_prob = w.get("sl_probability", 50)
+        adjustments = w.get("adjustments", [])
+        recommendations = w.get("recommendations", [])
+        indicators = w.get("indicators", {})
+
+        pnl_emoji = "\U0001f4b0" if pnl_pct >= 0 else "\U0001f4c9"
+        pnl_sign = "+" if pnl_pct >= 0 else ""
+
+        # TP/SL probability bar
+        tp_bar = "\U0001f7e2" * max(1, round(tp_prob / 10)) + "\u26aa" * max(0, 10 - max(1, round(tp_prob / 10)))
+        sl_bar = "\U0001f534" * max(1, round(sl_prob / 10)) + "\u26aa" * max(0, 10 - max(1, round(sl_prob / 10)))
+
+        lines = [
+            f"*\U0001f441 {coin}/USDT \u00b7 {tf}*",
+            f"{dir_emoji}",
+            f"",
+            f"\U0001f4b5 \u0426\u0435\u043d\u0430: `{_fmt_price(current_price)}`",
+            f"\U0001f3af \u0412\u0445\u043e\u0434: `{_fmt_price(entry)}`",
+            f"{pnl_emoji} P&L: `{pnl_sign}{pnl_pct:.2f}%`",
+            f"",
+            f"*\u0428\u0430\u043d\u0441\u044b:*",
+            f"TP: {tp_bar} *{tp_prob:.0f}%*",
+            f"SL: {sl_bar} *{sl_prob:.0f}%*",
+            f"",
+            f"*\U0001f4ca \u0423\u0440\u043e\u0432\u043d\u0438:*",
+            f"  SL: `{_fmt_price(stop_loss)}`",
+            f"  TP1: `{_fmt_price(tp1)}`{'  \u2705' if tp1_hit else ''}",
+        ]
+        if tp2:
+            lines.append(f"  TP2: `{_fmt_price(tp2)}`")
+
+        # Indicators
+        lines.append(f"")
+        lines.append(f"*\U0001f4c8 \u0418\u043d\u0434\u0438\u043a\u0430\u0442\u043e\u0440\u044b:*")
+        lines.append(f"  \u0422\u0440\u0435\u043d\u0434: {indicators.get('trend', '\u2014')}")
+        lines.append(f"  RSI: {indicators.get('rsi', '\u2014')}")
+        lines.append(f"  MACD: {indicators.get('macd_state', '\u2014')}")
+
+        # Analysis adjustments
+        if adjustments:
+            lines.append(f"")
+            lines.append(f"*\U0001f9ee \u0410\u043d\u0430\u043b\u0438\u0437:*")
+            for adj in adjustments[:5]:
+                lines.append(f"  \u2022 {adj}")
+
+        # Recommendations
+        if recommendations:
+            lines.append(f"")
+            lines.append(f"*\U0001f4a1 \u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u0430\u0446\u0438\u0438:*")
+            for rec in recommendations:
+                lines.append(f"  \u27a1 {rec}")
+
+        _send(chat_id, "\n".join(lines))
+
+    summary = f"\U0001f441 \u0410\u043a\u0442\u0438\u0432\u043d\u044b\u0445 \u043e\u0442\u0441\u043b\u0435\u0436\u0438\u0432\u0430\u043d\u0438\u0439: *{len(watches)}*"
+    _send(chat_id, summary, _main_menu_kb())
 
 
 def set_webhook(base_url: str) -> dict | None:

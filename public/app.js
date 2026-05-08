@@ -802,6 +802,22 @@
     } catch {
       // ignore
     }
+    syncWatchesToServer();
+  }
+
+  async function syncWatchesToServer() {
+    try {
+      await fetch(
+        `${API_BASE}/watches/sync`,
+        withAuth({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ watches }),
+        }),
+      );
+    } catch {
+      // ignore
+    }
   }
 
   function addWatch(data) {
@@ -958,7 +974,10 @@
     checkHealth();
     loadContext();
     renderWatches();
-    if (watches.length > 0) startPolling();
+    if (watches.length > 0) {
+      startPolling();
+      syncWatchesToServer();
+    }
   }
 
   document.addEventListener("DOMContentLoaded", init);

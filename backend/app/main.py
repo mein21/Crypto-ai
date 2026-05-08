@@ -388,6 +388,237 @@ def send_alert_endpoint(payload: dict) -> dict:
     return {"ok": ok}
 
 
+# --- Server-side watches storage (best-effort, in-memory) --------------------
+_active_watches: list[dict] = []
+
+
+@app.post("/watches/sync")
+def watches_sync(payload: dict) -> dict:
+    """Receive the current watches list from the frontend."""
+    global _active_watches
+    _active_watches = payload.get("watches", [])
+    return {"ok": True, "count": len(_active_watches)}
+
+
+@app.get("/watches")
+def watches_get() -> dict:
+    """Return current active watches (for Telegram bot)."""
+    return {"watches": _active_watches}
+
+
+@app.post("/watches/analyze")
+def watches_analyze() -> dict:
+    """Analyze all active watches: fetch price, run indicators, calculate TP/SL probabilities."""
+    results = []
+    for w in _active_watches:
+        coin = w.get("coin", "BTC")
+        tf = w.get("timeframe", "4h")
+        direction = w.get("direction", "flat")
+        entry = w.get("entry")
+        stop_loss = w.get("stop_loss")
+        tp1 = w.get("take_profit_1")
+        tp2 = w.get("take_profit_2")
+        tp1_hit = w.get("tp1_hit", False)
+
+        # Fetch current price
+        current_price = None
+        for ex_name, symbol_map in EXCHANGE_ORDER:
+            if coin not in symbol_map:
+                continue
+            try:
+                ex = _exchange(ex_name)
+                ticker = ex.fetch_ticker(symbol_map[coin])
+                current_price = ticker["last"]
+                break
+            except Exception:  # noqa: BLE001
+                continue
+
+        if current_price is None or entry is None or stop_loss is None:
+            results.append({**w, "error": "no_price"})
+            continue
+
+        # Run indicator analysis
+        try:
+            df = fetch_ohlcv(coin, tf)
+            if len(df) < 60:
+                results.append({**w, "current_price": current_price, "error": "insufficient_data"})
+                continue
+            ind = compute_all(df)
+            summary = ind.summary()
+        except Exception:  # noqa: BLE001
+            results.append({**w, "current_price": current_price, "error": "analysis_failed"})
+            continue
+
+        # --- Strategy-based TP/SL probability ---
+        is_long = direction == "long"
+        trend = summary.get("trend", "боковой")
+        rsi_val = summary.get("rsi", 50)
+        macd_hist = summary.get("macd_hist", 0)
+        macd_state = summary.get("macd_state", "нейтрально")
+        bb_lower = summary.get("bb_lower", 0)
+        bb_upper = summary.get("bb_upper", 0)
+        atr_val = summary.get("atr", 0)
+        ema_fast = summary.get("ema_fast", 0)
+        ema_slow = summary.get("ema_slow", 0)
+        support_levels = summary.get("support", [])
+        resistance_levels = summary.get("resistance", [])
+
+        # Base probability from distance ratio
+        dist_to_sl = abs(current_price - stop_loss)
+        dist_to_tp = abs(current_price - (tp1 if tp1 else entry))
+        total_dist = dist_to_sl + dist_to_tp
+        if total_dist > 0:
+            tp_base = (dist_to_sl / total_dist) * 100
+        else:
+            tp_base = 50.0
+
+        tp_prob = tp_base
+        adjustments = []
+
+        # 1) Trend alignment
+        trend_supports = (is_long and trend == "восходящий") or (not is_long and trend == "нисходящий")
+        trend_against = (is_long and trend == "нисходящий") or (not is_long and trend == "восходящий")
+        if trend_supports:
+            tp_prob += 12
+            adjustments.append("Тренд подтверждает направление (+12%)")
+        elif trend_against:
+            tp_prob -= 15
+            adjustments.append("Тренд против позиции (-15%)")
+        else:
+            adjustments.append("Боковой тренд (0%)")
+
+        # 2) RSI
+        if is_long:
+            if rsi_val >= 75:
+                tp_prob -= 10
+                adjustments.append(f"RSI {rsi_val:.0f} — перекупленность (-10%)")
+            elif rsi_val >= 60:
+                tp_prob += 5
+                adjustments.append(f"RSI {rsi_val:.0f} — бычий импульс (+5%)")
+            elif rsi_val <= 30:
+                tp_prob += 8
+                adjustments.append(f"RSI {rsi_val:.0f} — зона отскока (+8%)")
+        else:
+            if rsi_val <= 25:
+                tp_prob -= 10
+                adjustments.append(f"RSI {rsi_val:.0f} — перепроданность (-10%)")
+            elif rsi_val <= 40:
+                tp_prob += 5
+                adjustments.append(f"RSI {rsi_val:.0f} — медвежий импульс (+5%)")
+            elif rsi_val >= 70:
+                tp_prob += 8
+                adjustments.append(f"RSI {rsi_val:.0f} — зона разворота (+8%)")
+
+        # 3) MACD
+        macd_confirms = (is_long and macd_state == "бычий") or (not is_long and macd_state == "медвежий")
+        macd_against = (is_long and macd_state == "медвежий") or (not is_long and macd_state == "бычий")
+        if macd_confirms:
+            tp_prob += 8
+            adjustments.append("MACD подтверждает (+8%)")
+        elif macd_against:
+            tp_prob -= 8
+            adjustments.append("MACD против (-8%)")
+
+        # 4) EMA alignment
+        if is_long and ema_fast > ema_slow:
+            tp_prob += 5
+            adjustments.append("EMA20 > EMA50 (+5%)")
+        elif not is_long and ema_fast < ema_slow:
+            tp_prob += 5
+            adjustments.append("EMA20 < EMA50 (+5%)")
+        elif is_long and ema_fast < ema_slow:
+            tp_prob -= 5
+            adjustments.append("EMA20 < EMA50 (-5%)")
+        elif not is_long and ema_fast > ema_slow:
+            tp_prob -= 5
+            adjustments.append("EMA20 > EMA50 (-5%)")
+
+        # 5) Bollinger position
+        if bb_upper > bb_lower:
+            bb_pos = (current_price - bb_lower) / (bb_upper - bb_lower)
+            if is_long and bb_pos > 0.9:
+                tp_prob -= 7
+                adjustments.append("Цена у верхней Боллинджера (-7%)")
+            elif not is_long and bb_pos < 0.1:
+                tp_prob -= 7
+                adjustments.append("Цена у нижней Боллинджера (-7%)")
+
+        # 6) Support/resistance obstacles
+        if is_long and tp1 and resistance_levels:
+            obstacles = [r for r in resistance_levels if current_price < r < tp1]
+            if obstacles:
+                tp_prob -= min(len(obstacles) * 3, 9)
+                adjustments.append(f"{len(obstacles)} сопротивлени(е/я) до TP (-{min(len(obstacles)*3,9)}%)")
+        elif not is_long and tp1 and support_levels:
+            obstacles = [s for s in support_levels if tp1 < s < current_price]
+            if obstacles:
+                tp_prob -= min(len(obstacles) * 3, 9)
+                adjustments.append(f"{len(obstacles)} поддерж(ка/ки) до TP (-{min(len(obstacles)*3,9)}%)")
+
+        tp_prob = max(5, min(95, tp_prob))
+        sl_prob = max(5, min(95, 100 - tp_prob))
+
+        # --- P&L ---
+        if is_long:
+            pnl_pct = ((current_price - entry) / entry) * 100
+        else:
+            pnl_pct = ((entry - current_price) / entry) * 100
+
+        # --- Recommendations ---
+        recommendations = []
+        if pnl_pct > 0 and tp1 and not tp1_hit:
+            progress = abs(current_price - entry) / abs(tp1 - entry) * 100 if tp1 != entry else 0
+            if progress >= 70:
+                recommendations.append("Цена прошла >70% до TP1 — рассмотрите трейлинг-стоп")
+            elif progress >= 40:
+                recommendations.append("Цена прошла >40% до TP1 — передвиньте стоп в безубыток")
+
+        if tp1_hit:
+            recommendations.append("TP1 достигнут — перенесите стоп к TP1, ждите TP2")
+
+        if trend_against:
+            recommendations.append("Тренд развернулся — рассмотрите ранний выход")
+
+        if (is_long and rsi_val >= 75) or (not is_long and rsi_val <= 25):
+            recommendations.append("RSI в экстремальной зоне — возможен откат")
+
+        if sl_prob >= 60:
+            recommendations.append("Высокий риск SL — рассмотрите уменьшение позиции")
+
+        if not recommendations:
+            if tp_prob >= 65:
+                recommendations.append("Позиция выглядит хорошо — держите по плану")
+            else:
+                recommendations.append("Следите за индикаторами — нет явного сигнала")
+
+        from .telegram_notify import _fmt_price
+        results.append({
+            "coin": coin,
+            "timeframe": tf,
+            "direction": direction,
+            "entry": entry,
+            "stop_loss": stop_loss,
+            "take_profit_1": tp1,
+            "take_profit_2": tp2,
+            "tp1_hit": tp1_hit,
+            "current_price": current_price,
+            "pnl_pct": round(pnl_pct, 2),
+            "tp_probability": round(tp_prob, 1),
+            "sl_probability": round(sl_prob, 1),
+            "adjustments": adjustments,
+            "recommendations": recommendations,
+            "indicators": {
+                "trend": trend,
+                "rsi": round(rsi_val, 1),
+                "macd_state": macd_state,
+                "ema_fast": round(ema_fast, 2),
+                "ema_slow": round(ema_slow, 2),
+            },
+        })
+
+    return {"watches": results}
+
+
 @app.get("/context", response_model=ContextResponse)
 def context_endpoint() -> ContextResponse:
     fng = fetch_fear_greed()
