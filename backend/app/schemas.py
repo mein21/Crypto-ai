@@ -163,6 +163,7 @@ class BestDealResponse(BaseModel):
     best: Optional[BestDealItem] = None
     scanned: int = 0
     all_deals: list[BestDealItem] = Field(default_factory=list)
+    full_analysis: Optional[AnalyzeResponse] = None
 
 
 class ContextResponse(BaseModel):

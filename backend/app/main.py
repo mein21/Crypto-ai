@@ -155,8 +155,8 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
                 continue
             ind = compute_all(df)
             summary = ind.summary()
-            analysis = analyze(coin, req.timeframe, summary)
-            sig = analysis.signal
+            result = analyze(coin, req.timeframe, summary)
+            sig = result.signal
             items.append(
                 BestDealItem(
                     coin=coin,
@@ -169,19 +169,62 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
                     take_profit_2=sig.take_profit_2,
                     rationale=sig.rationale,
                     last_price=float(summary["close"]),
-                    trend=analysis.trend,
+                    trend=result.trend,
                     rsi=round(float(summary["rsi"]), 1),
-                    market_regime=analysis.market_regime,
+                    market_regime=result.market_regime,
                 )
             )
         except Exception as e:  # noqa: BLE001
             log.warning("Best-deal scan failed for %s: %s", coin, e)
             continue
 
-    # Sort by confidence desc, prefer non-flat directions
     items.sort(key=lambda x: (x.direction != "flat", x.confidence), reverse=True)
     best = items[0] if items else None
-    return BestDealResponse(best=best, scanned=len(items), all_deals=items[:5])
+
+    full_analysis: AnalyzeResponse | None = None
+    if best:
+        try:
+            coin = best.coin
+            df = fetch_ohlcv(coin, req.timeframe)
+            ind = compute_all(df)
+            summary = ind.summary()
+            htf_raw = fetch_higher_tf_trends(coin, req.timeframe)
+            fng_raw = fetch_fear_greed()
+            news_raw = enrich_news(coin, fetch_news_for_coin(coin, limit=5))
+            onchain_raw = fetch_onchain(coin)
+            try:
+                atr_last = float(ind.atr.iloc[-1])
+            except Exception:  # noqa: BLE001
+                atr_last = 0.0
+            patterns_raw = detect_patterns(
+                df, lookback=10, support=ind.support, resistance=ind.resistance,
+                atr=atr_last, trend_label=summary.get("trend"),
+            )
+            extra_context = {
+                "htf_trends": htf_raw, "fear_greed": fng_raw,
+                "news_titles": [n.get("title_ru") or n.get("title", "") for n in news_raw][:5],
+                "onchain": onchain_raw, "coin": coin, "patterns": patterns_raw,
+            }
+            analysis = analyze(coin, req.timeframe, summary, extra_context=extra_context)
+            analysis.patterns = [CandlePattern(**p) for p in patterns_raw]
+            chart_b64 = render_chart_b64(coin, req.timeframe, ind, signal=analysis.signal, patterns=patterns_raw)
+            onchain_obj: Onchain | None = None
+            if onchain_raw and coin == "BTC":
+                onchain_obj = Onchain(btc=BtcOnchain(**onchain_raw))
+            elif onchain_raw and coin == "ETH":
+                onchain_obj = Onchain(eth=EthOnchain(**onchain_raw))
+            full_analysis = AnalyzeResponse(
+                analysis=analysis, chart_png_b64=chart_b64, indicators=summary,
+                last_price=float(summary["close"]),
+                htf_trends=[HtfTrend(**h) for h in htf_raw],
+                news=[NewsItem(**n) for n in news_raw],
+                fear_greed=FearGreed(**fng_raw) if fng_raw else None,
+                onchain=onchain_obj,
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Full analysis for best deal %s failed: %s", best.coin, e)
+
+    return BestDealResponse(best=best, scanned=len(items), all_deals=items[:5], full_analysis=full_analysis)
 
 
 @app.get("/context", response_model=ContextResponse)

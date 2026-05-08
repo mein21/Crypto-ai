@@ -592,6 +592,10 @@
       runnersEl.appendChild(row);
     });
 
+    if (resp.full_analysis) {
+      renderResult(resp.full_analysis);
+    }
+
     window.scrollTo({ top: section.offsetTop - 20, behavior: "smooth" });
   }
 
