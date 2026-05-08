@@ -80,6 +80,7 @@ def _main_menu_kb() -> dict:
             ],
             [
                 {"text": "\U0001f4ca Таймфреймы", "callback_data": "action_timeframes_info"},
+                {"text": "\U0001f441 Отслеживания", "callback_data": "action_watches"},
             ],
         ]
     }
@@ -136,7 +137,8 @@ def _handle_start(chat_id: int | str) -> None:
         "Выберите действие:\n"
         "\U0001f514 *Проверить сигналы* \u2014 сканирует топ-5 монет и отправит уведомления по качественным сделкам\n"
         "\U0001f3c6 *Лучшая сделка* \u2014 найдёт лучшую торговую возможность\n"
-        "\U0001f4ca *Таймфреймы* \u2014 справка по удержанию сделки"
+        "\U0001f4ca *Таймфреймы* \u2014 справка по удержанию сделки\n"
+        "\U0001f441 *Отслеживания* \u2014 информация о трекинге SL/TP"
     )
     _send(chat_id, text, _main_menu_kb())
 
@@ -206,6 +208,8 @@ def handle_update(update: dict) -> None:
             _send(chat_id, "Выберите таймфрейм для сканирования:", _timeframe_kb("sig"))
         elif text.startswith("/best"):
             _send(chat_id, "Выберите таймфрейм для лучшей сделки:", _timeframe_kb("best"))
+        elif text.startswith("/watches"):
+            _handle_watches_info(chat_id)
         elif text.startswith("/help"):
             _handle_start(chat_id)
         else:
@@ -225,6 +229,9 @@ def handle_update(update: dict) -> None:
             _send(chat_id, "Выберите таймфрейм для лучшей сделки:", _timeframe_kb("best"))
         elif data == "action_timeframes_info":
             _handle_timeframes_info(chat_id, cb_id)
+        elif data == "action_watches":
+            _answer_callback(cb_id)
+            _handle_watches_info(chat_id)
         elif data == "back_main":
             _answer_callback(cb_id)
             _handle_start(chat_id)
@@ -238,6 +245,20 @@ def handle_update(update: dict) -> None:
                 _handle_best_deal(chat_id, tf, cb_id)
         else:
             _answer_callback(cb_id, "Неизвестная команда")
+
+
+def _handle_watches_info(chat_id: int | str) -> None:
+    text = (
+        "*\U0001f441 Отслеживание SL/TP*\n\n"
+        "Как работает:\n"
+        "1. Запустите анализ или лучшую сделку на сайте\n"
+        "2. Нажмите кнопку *\U0001f4cc Отслеживать*\n"
+        "3. Сайт будет проверять цену каждые 10 секунд\n"
+        "4. При достижении SL или TP вам придёт уведомление в Telegram\n\n"
+        "\u2757 _Важно: отслеживание работает пока открыта вкладка сайта в браузере._\n\n"
+        "Сайт: [crypto-ai-eta.vercel.app](https://crypto-ai-eta.vercel.app)"
+    )
+    _send(chat_id, text, _main_menu_kb())
 
 
 def set_webhook(base_url: str) -> dict | None:

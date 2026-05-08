@@ -18,7 +18,7 @@ from .context import (
     fetch_higher_tf_trends,
     fetch_news_for_coin,
 )
-from .data import SYMBOL_MAP, fetch_ohlcv
+from .data import SYMBOL_MAP, SYMBOL_MAP_USDT, fetch_ohlcv, _exchange, EXCHANGE_ORDER
 from .indicators import compute_all
 from .llm import analyze, analyze_fast
 from .news_enrich import enrich_news
@@ -309,6 +309,83 @@ def set_tg_webhook() -> dict:
         base = f"https://{base}"
     result = set_webhook(base)
     return {"ok": True, "result": result, "base_url": base}
+
+
+@app.get("/price/{coin}")
+def price_endpoint(coin: str) -> dict:
+    """Return the current price for a coin via exchange ticker."""
+    coin = coin.upper()
+    if coin not in SYMBOL_MAP:
+        raise HTTPException(status_code=400, detail=f"Unsupported coin: {coin}")
+    for ex_name, symbol_map in EXCHANGE_ORDER:
+        if coin not in symbol_map:
+            continue
+        symbol = symbol_map[coin]
+        try:
+            ex = _exchange(ex_name)
+            ticker = ex.fetch_ticker(symbol)
+            return {
+                "coin": coin,
+                "price": ticker["last"],
+                "exchange": ex_name,
+            }
+        except Exception:  # noqa: BLE001
+            continue
+    raise HTTPException(status_code=502, detail="Cannot fetch price from any exchange")
+
+
+@app.post("/send-alert")
+def send_alert_endpoint(payload: dict) -> dict:
+    """Send a custom SL/TP hit alert to Telegram."""
+    from .telegram_notify import send_telegram_message, HOLDING_PERIOD, _fmt_price
+
+    coin = payload.get("coin", "?")
+    tf = payload.get("timeframe", "?")
+    direction = payload.get("direction", "flat")
+    hit_type = payload.get("hit_type", "?")  # "SL", "TP1", "TP2"
+    hit_price = payload.get("hit_price")
+    entry = payload.get("entry")
+    stop_loss = payload.get("stop_loss")
+    tp1 = payload.get("take_profit_1")
+    tp2 = payload.get("take_profit_2")
+
+    dir_emoji = {"long": "\U0001f7e2", "short": "\U0001f534"}.get(direction, "\u26aa")
+    dir_text = {"long": "\u041b\u041e\u041d\u0413", "short": "\u0428\u041e\u0420\u0422"}.get(direction, "\u2014")
+
+    if hit_type == "SL":
+        icon = "\U0001f6a8"
+        result_text = "Stop-loss \u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b"
+    elif hit_type == "TP1":
+        icon = "\U0001f3af"
+        result_text = "Take-profit 1 \u0434\u043e\u0441\u0442\u0438\u0433\u043d\u0443\u0442"
+    elif hit_type == "TP2":
+        icon = "\U0001f3af\U0001f3af"
+        result_text = "Take-profit 2 \u0434\u043e\u0441\u0442\u0438\u0433\u043d\u0443\u0442"
+    else:
+        icon = "\u2757"
+        result_text = hit_type
+
+    lines = [
+        f"{icon} *{result_text}: {coin}/USDT \u00b7 {tf}*",
+        f"",
+        f"{dir_emoji} {dir_text}",
+        f"\U0001f4b0 \u0426\u0435\u043d\u0430 \u0441\u0440\u0430\u0431\u0430\u0442\u044b\u0432\u0430\u043d\u0438\u044f: `{_fmt_price(hit_price)}`",
+        f"",
+        f"\U0001f4ca *\u041f\u0430\u0440\u0430\u043c\u0435\u0442\u0440\u044b \u0441\u0434\u0435\u043b\u043a\u0438:*",
+        f"  \u0412\u0445\u043e\u0434: `{_fmt_price(entry)}`",
+        f"  Stop-loss: `{_fmt_price(stop_loss)}`",
+        f"  TP1: `{_fmt_price(tp1)}`",
+        f"  TP2: `{_fmt_price(tp2)}`",
+    ]
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    lines.append(f"")
+    lines.append(f"\u23f0 {now}")
+
+    msg = "\n".join(lines)
+    ok = send_telegram_message(msg)
+    return {"ok": ok}
 
 
 @app.get("/context", response_model=ContextResponse)

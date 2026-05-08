@@ -14,6 +14,9 @@
   const TFS = ["15m", "1h", "4h", "1d", "1w"];
 
   let state = { coin: "BTC", tf: "1h", loading: false };
+  let watches = loadWatches();
+  let pollTimer = null;
+  const POLL_INTERVAL = 10000;
 
   const $ = (id) => document.getElementById(id);
 
@@ -456,6 +459,36 @@
 
     $("rationale").textContent = sig.rationale || "";
 
+    const existingTrackBtn = idea.parentElement.querySelector(".track-btn");
+    if (existingTrackBtn) existingTrackBtn.remove();
+    if (sig.direction && sig.direction !== "flat" && sig.entry != null && sig.stop_loss != null) {
+      const trackBtn = document.createElement("button");
+      trackBtn.className = "track-btn";
+      trackBtn.textContent = "\uD83D\uDCCC \u041E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u0442\u044C";
+      const watchData = {
+        coin: analysis.coin,
+        timeframe: analysis.timeframe || state.tf,
+        direction: sig.direction,
+        entry: sig.entry,
+        stop_loss: sig.stop_loss,
+        take_profit_1: sig.take_profit_1,
+        take_profit_2: sig.take_profit_2,
+      };
+      const alreadyTracked = watches.some(
+        (w) => w.coin === watchData.coin && w.timeframe === watchData.timeframe && w.entry === watchData.entry
+      );
+      if (alreadyTracked) {
+        trackBtn.classList.add("tracking");
+        trackBtn.textContent = "\u2705 \u041E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F";
+      }
+      trackBtn.addEventListener("click", () => {
+        addWatch(watchData);
+        trackBtn.classList.add("tracking");
+        trackBtn.textContent = "\u2705 \u041E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F";
+      });
+      idea.parentElement.appendChild(trackBtn);
+    }
+
     const ind = $("indicators-kv");
     ind.innerHTML = "";
     const indicatorsObj = analysis.indicators_summary || {};
@@ -569,6 +602,36 @@
     });
 
     $("best-deal-rationale").textContent = best.rationale || "";
+
+    const existingBdTrack = main.parentElement.querySelector(".track-btn");
+    if (existingBdTrack) existingBdTrack.remove();
+    if (best.direction && best.direction !== "flat" && best.entry != null && best.stop_loss != null) {
+      const bdTrackBtn = document.createElement("button");
+      bdTrackBtn.className = "track-btn";
+      bdTrackBtn.textContent = "\uD83D\uDCCC \u041E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u0442\u044C";
+      const bdWatchData = {
+        coin: best.coin,
+        timeframe: best.timeframe,
+        direction: best.direction,
+        entry: best.entry,
+        stop_loss: best.stop_loss,
+        take_profit_1: best.take_profit_1,
+        take_profit_2: best.take_profit_2,
+      };
+      const bdAlreadyTracked = watches.some(
+        (w) => w.coin === bdWatchData.coin && w.timeframe === bdWatchData.timeframe && w.entry === bdWatchData.entry
+      );
+      if (bdAlreadyTracked) {
+        bdTrackBtn.classList.add("tracking");
+        bdTrackBtn.textContent = "\u2705 \u041E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F";
+      }
+      bdTrackBtn.addEventListener("click", () => {
+        addWatch(bdWatchData);
+        bdTrackBtn.classList.add("tracking");
+        bdTrackBtn.textContent = "\u2705 \u041E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F";
+      });
+      main.parentElement.appendChild(bdTrackBtn);
+    }
     $("best-deal-footer").textContent = `Просканировано монет: ${resp.scanned} · Таймфрейм: ${best.timeframe}`;
 
     const runnersEl = $("best-deal-runners");
@@ -723,6 +786,153 @@
     }
   }
 
+  // --- Watchlist management ---
+
+  function loadWatches() {
+    try {
+      return JSON.parse(localStorage.getItem("crypto_watches") || "[]");
+    } catch {
+      return [];
+    }
+  }
+
+  function saveWatches() {
+    try {
+      localStorage.setItem("crypto_watches", JSON.stringify(watches));
+    } catch {
+      // ignore
+    }
+  }
+
+  function addWatch(data) {
+    const exists = watches.some(
+      (w) => w.coin === data.coin && w.timeframe === data.timeframe && w.entry === data.entry
+    );
+    if (exists) return;
+    const watch = { ...data, id: Date.now(), created: new Date().toISOString(), tp1_hit: false, tp2_hit: false };
+    watches.push(watch);
+    saveWatches();
+    renderWatches();
+    startPolling();
+  }
+
+  function removeWatch(id) {
+    watches = watches.filter((w) => w.id !== id);
+    saveWatches();
+    renderWatches();
+    if (watches.length === 0) stopPolling();
+  }
+
+  function renderWatches() {
+    const panel = $("watches-panel");
+    const list = $("watches-list");
+    const count = $("watches-count");
+    if (!watches.length) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+    count.textContent = watches.length;
+    list.innerHTML = "";
+    watches.forEach((w) => {
+      const item = document.createElement("div");
+      item.className = "watch-item " + (w.direction || "flat");
+      const dirLabel = w.direction === "long" ? "\u041B\u041E\u041D\u0413" : w.direction === "short" ? "\u0428\u041E\u0420\u0422" : "\u2014";
+      item.innerHTML = `
+        <span class="watch-coin">${w.coin}/USDT \u00b7 ${w.timeframe} \u00b7 ${dirLabel}</span>
+        <span class="watch-price">\u0412\u0445\u043E\u0434: ${fmtPrice(w.entry)}</span>
+        <span class="watch-target sl">SL: ${fmtPrice(w.stop_loss)}</span>
+        <span class="watch-target tp">TP1: ${fmtPrice(w.take_profit_1)}${w.tp1_hit ? " \u2705" : ""}</span>
+        <button class="watch-remove" data-id="${w.id}">\u2716</button>
+      `;
+      item.querySelector(".watch-remove").addEventListener("click", () => removeWatch(w.id));
+      list.appendChild(item);
+    });
+  }
+
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(pollPrices, POLL_INTERVAL);
+    pollPrices();
+  }
+
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  async function pollPrices() {
+    const activeWatches = [...watches];
+    const coinSet = new Set(activeWatches.map((w) => w.coin));
+    for (const coin of coinSet) {
+      try {
+        const r = await fetch(`${API_BASE}/price/${coin}`, withAuth());
+        if (!r.ok) continue;
+        const data = await r.json();
+        const price = data.price;
+        for (const w of activeWatches.filter((x) => x.coin === coin)) {
+          checkPriceHit(w, price);
+        }
+      } catch {
+        // ignore fetch errors
+      }
+    }
+  }
+
+  async function checkPriceHit(watch, price) {
+    const isLong = watch.direction === "long";
+    const slHit = isLong ? price <= watch.stop_loss : price >= watch.stop_loss;
+    const tp1Hit = !watch.tp1_hit && watch.take_profit_1 != null && (isLong ? price >= watch.take_profit_1 : price <= watch.take_profit_1);
+    const tp2Hit = watch.take_profit_2 != null && (isLong ? price >= watch.take_profit_2 : price <= watch.take_profit_2);
+
+    if (slHit) {
+      await sendAlert(watch, "SL", price);
+      removeWatch(watch.id);
+      return;
+    }
+    if (tp2Hit) {
+      await sendAlert(watch, "TP2", price);
+      removeWatch(watch.id);
+      return;
+    }
+    if (tp1Hit) {
+      await sendAlert(watch, "TP1", price);
+      const idx = watches.findIndex((w) => w.id === watch.id);
+      if (idx !== -1) {
+        watches[idx].tp1_hit = true;
+        saveWatches();
+        renderWatches();
+      }
+    }
+  }
+
+  async function sendAlert(watch, hitType, hitPrice) {
+    try {
+      await fetch(
+        `${API_BASE}/send-alert`,
+        withAuth({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            coin: watch.coin,
+            timeframe: watch.timeframe,
+            direction: watch.direction,
+            hit_type: hitType,
+            hit_price: hitPrice,
+            entry: watch.entry,
+            stop_loss: watch.stop_loss,
+            take_profit_1: watch.take_profit_1,
+            take_profit_2: watch.take_profit_2,
+          }),
+        }),
+      );
+    } catch {
+      // ignore
+    }
+  }
+
   function setupThemeToggle() {
     const btn = $("theme-toggle");
     if (!btn) return;
@@ -747,6 +957,8 @@
     $("notify-btn").addEventListener("click", notifyCheck);
     checkHealth();
     loadContext();
+    renderWatches();
+    if (watches.length > 0) startPolling();
   }
 
   document.addEventListener("DOMContentLoaded", init);
