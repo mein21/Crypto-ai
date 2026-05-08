@@ -679,6 +679,50 @@
     }
   }
 
+  async function notifyCheck() {
+    if (state.loading) return;
+    clearError();
+    state.loading = true;
+    const btn = $("notify-btn");
+    btn.disabled = true;
+    btn.querySelector(".btn-content").hidden = true;
+    btn.querySelector(".btn-spinner").hidden = false;
+    try {
+      const r = await fetch(
+        `${API_BASE}/notify-check`,
+        withAuth({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ timeframe: state.tf }),
+        }),
+      );
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        let msg = `Ошибка ${r.status}`;
+        try {
+          const j = JSON.parse(errText);
+          if (j.detail) msg += `: ${j.detail}`;
+        } catch {
+          if (errText) msg += `: ${errText.slice(0, 200)}`;
+        }
+        throw new Error(msg);
+      }
+      const j = await r.json();
+      if (j.notified && j.notified.length > 0) {
+        alert(`Отправлены уведомления в Telegram: ${j.notified.join(", ")}`);
+      } else {
+        alert(`Просканировано ${j.scanned} монет. Сигналов для уведомления не найдено (макс. уверенность: ${j.best_confidence}%).`);
+      }
+    } catch (e) {
+      showError(`Не удалось проверить сигналы — ${e.message}`);
+    } finally {
+      state.loading = false;
+      btn.disabled = false;
+      btn.querySelector(".btn-content").hidden = false;
+      btn.querySelector(".btn-spinner").hidden = true;
+    }
+  }
+
   function setupThemeToggle() {
     const btn = $("theme-toggle");
     if (!btn) return;
@@ -700,6 +744,7 @@
     buildChips("tf-row", TFS, "tf");
     $("analyze-btn").addEventListener("click", analyze);
     $("best-deal-btn").addEventListener("click", bestDeal);
+    $("notify-btn").addEventListener("click", notifyCheck);
     checkHealth();
     loadContext();
   }

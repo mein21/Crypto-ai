@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "crons": [
+    { "path": "/notify-check", "schedule": "0 */4 * * *" }
+  ],
   "builds": [
     { "src": "api/index.py", "use": "@vercel/python", "config": { "maxLambdaSize": "250mb" } },
     { "src": "public/**", "use": "@vercel/static" }
@@ -9,6 +12,7 @@
     { "src": "/coins", "dest": "api/index.py" },
     { "src": "/analyze", "dest": "api/index.py" },
     { "src": "/best-deal", "dest": "api/index.py" },
+    { "src": "/notify-check", "dest": "api/index.py" },
     { "src": "/context", "dest": "api/index.py" },
     { "src": "/", "dest": "/public/index.html" },
     { "src": "/(.*\\.(?:css|js|png|jpg|jpeg|svg|ico|webmanifest|map))", "dest": "/public/$1" },

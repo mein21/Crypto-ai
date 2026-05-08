@@ -24,6 +24,7 @@ from .llm import analyze
 from .news_enrich import enrich_news
 from .onchain import fetch_onchain
 from .patterns import detect_patterns
+from .telegram_notify import notify_if_worthy
 from .schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -224,7 +225,53 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
         except Exception as e:  # noqa: BLE001
             log.warning("Full analysis for best deal %s failed: %s", best.coin, e)
 
+    if best:
+        notify_if_worthy(best.model_dump())
+
     return BestDealResponse(best=best, scanned=len(items), all_deals=items[:5], full_analysis=full_analysis)
+
+
+@app.api_route("/notify-check", methods=["GET", "POST"])
+def notify_check_endpoint(req: BestDealRequest | None = None) -> dict:
+    """Scan all coins and send Telegram notification if a high-quality deal is found."""
+    timeframe = req.timeframe if req else "1h"
+    items: list[BestDealItem] = []
+    for coin in SYMBOL_MAP:
+        try:
+            df = fetch_ohlcv(coin, timeframe)
+            if len(df) < 60:
+                continue
+            ind = compute_all(df)
+            summary = ind.summary()
+            result = analyze(coin, timeframe, summary)
+            sig = result.signal
+            items.append(
+                BestDealItem(
+                    coin=coin, timeframe=timeframe,
+                    direction=sig.direction, confidence=sig.confidence,
+                    entry=sig.entry, stop_loss=sig.stop_loss,
+                    take_profit_1=sig.take_profit_1, take_profit_2=sig.take_profit_2,
+                    rationale=sig.rationale, last_price=float(summary["close"]),
+                    trend=result.trend, rsi=round(float(summary["rsi"]), 1),
+                    market_regime=result.market_regime,
+                )
+            )
+        except Exception as e:  # noqa: BLE001
+            log.warning("Notify-check scan failed for %s: %s", coin, e)
+            continue
+
+    items.sort(key=lambda x: (x.direction != "flat", x.confidence), reverse=True)
+    notified = []
+    for item in items:
+        d = item.model_dump()
+        if notify_if_worthy(d):
+            notified.append(item.coin)
+
+    return {
+        "scanned": len(items),
+        "notified": notified,
+        "best_confidence": items[0].confidence if items else 0,
+    }
 
 
 @app.get("/context", response_model=ContextResponse)
