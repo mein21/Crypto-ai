@@ -67,6 +67,9 @@ class NewsItem(BaseModel):
     source: str = ""
     ts: int = 0
     image: str = ""
+    title_ru: Optional[str] = None
+    impact: Optional[Literal["high", "medium", "low"]] = None
+    sentiment: Optional[Literal["bullish", "neutral", "bearish"]] = None
 
 
 class FearGreed(BaseModel):
@@ -75,9 +78,13 @@ class FearGreed(BaseModel):
     timestamp: Optional[str] = None
 
 
-class CorrelationMatrix(BaseModel):
-    labels: list[str]
-    matrix: list[list[float]]
+class CorrelationPair(BaseModel):
+    coin: str
+    value: float
+
+
+class CorrelationVsBtc(BaseModel):
+    pairs: list[CorrelationPair]
     window_days: int
     n_observations: int
 
@@ -164,6 +171,45 @@ class StrategyStats(BaseModel):
     windows: list[StrategyWindowStats] = Field(default_factory=list)
 
 
+class BtcFees(BaseModel):
+    fastest: int = 0
+    half_hour: int = 0
+    hour: int = 0
+    economy: int = 0
+    minimum: int = 0
+
+
+class BtcOnchain(BaseModel):
+    fees_sat_per_vb: BtcFees
+    mempool_count: int
+    mempool_vsize_mb: float
+    mempool_total_fee_btc: float
+    block_height: int
+    hashrate_eh: Optional[float] = None
+    difficulty_progress_pct: float
+    difficulty_change_pct: float
+    blocks_to_retarget: int
+
+
+class EthGas(BaseModel):
+    slow: float
+    standard: float
+    fast: float
+
+
+class EthOnchain(BaseModel):
+    gas_gwei: EthGas
+    base_fee_gwei: float
+    current_gas_gwei: float
+    block_number: int
+    congestion_pct: Optional[float] = None
+
+
+class Onchain(BaseModel):
+    btc: Optional[BtcOnchain] = None
+    eth: Optional[EthOnchain] = None
+
+
 class AnalyzeResponse(BaseModel):
     analysis: Analysis
     chart_png_b64: str
@@ -172,6 +218,7 @@ class AnalyzeResponse(BaseModel):
     htf_trends: list[HtfTrend] = Field(default_factory=list)
     news: list[NewsItem] = Field(default_factory=list)
     fear_greed: Optional[FearGreed] = None
+    onchain: Optional[Onchain] = None
     volume_profile: Optional[VolumeProfile] = None
     order_flow: Optional[OrderFlow] = None
     alignment: Optional[Alignment] = None
@@ -179,6 +226,33 @@ class AnalyzeResponse(BaseModel):
     strategy_stats: Optional[StrategyStats] = None
 
 
+class BestDealRequest(BaseModel):
+    timeframe: Timeframe = "1h"
+
+
+class BestDealItem(BaseModel):
+    coin: str
+    timeframe: str
+    direction: Literal["long", "short", "flat"] = "flat"
+    confidence: int = Field(0, ge=0, le=100)
+    entry: Optional[float] = None
+    stop_loss: Optional[float] = None
+    take_profit_1: Optional[float] = None
+    take_profit_2: Optional[float] = None
+    rationale: str = ""
+    last_price: float = 0.0
+    trend: str = ""
+    rsi: float = 0.0
+    market_regime: str = ""
+
+
+class BestDealResponse(BaseModel):
+    best: Optional[BestDealItem] = None
+    scanned: int = 0
+    all_deals: list[BestDealItem] = Field(default_factory=list)
+    full_analysis: Optional[AnalyzeResponse] = None
+
+
 class ContextResponse(BaseModel):
     fear_greed: Optional[FearGreed] = None
-    correlation: Optional[CorrelationMatrix] = None
+    correlation: Optional[CorrelationVsBtc] = None

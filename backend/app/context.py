@@ -189,10 +189,11 @@ def fetch_higher_tf_trends(coin: str, current_tf: str) -> list[dict]:
     return out
 
 
-# ---- Correlation matrix -------------------------------------------------
+# ---- Correlation vs BTC -------------------------------------------------
 
-def fetch_correlation_matrix(window_days: int = 30) -> dict | None:
-    cached = _cache.get(f"corr:{window_days}", ttl=3600)  # 1 hour
+def fetch_correlation_vs_btc(window_days: int = 30) -> dict | None:
+    """Return each coin's correlation with BTC over *window_days* daily candles."""
+    cached = _cache.get(f"corr_btc:{window_days}", ttl=3600)  # 1 hour
     if cached is not None:
         return cached
     closes: dict[str, pd.Series] = {}
@@ -204,20 +205,22 @@ def fetch_correlation_matrix(window_days: int = 30) -> dict | None:
                 closes[coin] = s.reset_index(drop=True)
         except Exception as e:  # noqa: BLE001
             log.warning("Corr OHLCV failed for %s: %s", coin, e)
-    if not closes:
+    if "BTC" not in closes or len(closes) < 2:
         return None
-    # Align to shortest length
     min_len = min(len(s) for s in closes.values())
     aligned = pd.DataFrame({k: v.tail(min_len).reset_index(drop=True) for k, v in closes.items()})
     returns = np.log(aligned / aligned.shift(1)).dropna()
     corr = returns.corr().fillna(0.0)
-    coins = list(corr.columns)
-    matrix = [[round(float(corr.iloc[i, j]), 3) for j in range(len(coins))] for i in range(len(coins))]
+    pairs: list[dict] = []
+    for coin in corr.columns:
+        if coin == "BTC":
+            continue
+        pairs.append({"coin": coin, "value": round(float(corr.loc[coin, "BTC"]), 3)})
+    pairs.sort(key=lambda p: p["value"], reverse=True)
     out = {
-        "labels": coins,
-        "matrix": matrix,
+        "pairs": pairs,
         "window_days": window_days,
         "n_observations": int(returns.shape[0]),
     }
-    _cache.set(f"corr:{window_days}", out)
+    _cache.set(f"corr_btc:{window_days}", out)
     return out
