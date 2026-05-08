@@ -682,21 +682,36 @@
       const v = rr(target);
       return v == null ? "" : ` · RR ${v.toFixed(2)}`;
     };
+    const entryType = sig.entry_type || "market";
+    const entryTypeLabels = {
+      market: { label: "По рынку", title: "Market — открыть прямо сейчас по цене close" },
+      limit: { label: "Лимит", title: "Limit — пассивный ордер у уровня (long: ниже close, short: выше close)" },
+      stop: { label: "По пробою", title: "Stop — войти только при пробое уровня (long: выше close, short: ниже close)" },
+    };
     const rows = [
-      ["Направление", dirText, sig.direction || "flat"],
-      ["Вход", fmtPrice(sig.entry), "warn"],
-      ["Stop-loss", fmtPrice(sig.stop_loss), "short"],
-      ["Take-profit 1", `${fmtPrice(sig.take_profit_1)}${rrText(sig.take_profit_1)}`, "long"],
-      ["Take-profit 2", `${fmtPrice(sig.take_profit_2)}${rrText(sig.take_profit_2)}`, "long"],
-      ["Уверенность", `${sig.confidence ?? 0}%`, ""],
+      ["Направление", dirText, sig.direction || "flat", null],
+      ["Вход", fmtPrice(sig.entry), "warn", { kind: "entry-type", type: entryType }],
+      ["Stop-loss", fmtPrice(sig.stop_loss), "short", null],
+      ["Take-profit 1", `${fmtPrice(sig.take_profit_1)}${rrText(sig.take_profit_1)}`, "long", null],
+      ["Take-profit 2", `${fmtPrice(sig.take_profit_2)}${rrText(sig.take_profit_2)}`, "long", null],
+      ["Уверенность", `${sig.confidence ?? 0}%`, "", null],
     ];
-    rows.forEach(([k, v, cls]) => {
+    rows.forEach(([k, v, cls, extra]) => {
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
+      if (extra && extra.kind === "entry-type" && sig.entry != null && (sig.direction === "long" || sig.direction === "short")) {
+        const badge = document.createElement("span");
+        badge.className = "entry-type-badge " + extra.type;
+        const conf = entryTypeLabels[extra.type] || entryTypeLabels.market;
+        badge.textContent = conf.label;
+        badge.title = conf.title;
+        vEl.appendChild(document.createTextNode(" "));
+        vEl.appendChild(badge);
+      }
       idea.appendChild(kEl);
       idea.appendChild(vEl);
     });

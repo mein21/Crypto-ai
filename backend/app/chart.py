@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
-from typing import Optional
+import json
+import time
+from collections import OrderedDict
+from threading import Lock
+from typing import Any, Optional
 
 import matplotlib
 
@@ -26,6 +31,81 @@ def _format_price(p: float) -> str:
     return f"{p:.4f}"
 
 
+# ---------------------------------------------------------------------------
+# Rendered-PNG cache (G3).
+# Charts only change when a new bar closes or when the trade signal annotated
+# on top changes. Re-rendering on every /analyze call wastes ~300-700ms per
+# request via matplotlib + mplfinance. We key the cache by (coin, tf,
+# last-bar-timestamp, signal+pattern fingerprint).
+# ---------------------------------------------------------------------------
+
+_CHART_CACHE_TTL = 6 * 60 * 60  # 6h — much longer than any timeframe; bar_ts already gates freshness
+_CHART_CACHE_MAX = 64
+_CHART_CACHE: "OrderedDict[str, tuple[float, bytes]]" = OrderedDict()
+_CHART_CACHE_LOCK = Lock()
+
+
+def _signal_fp(signal: Optional[Signal], patterns: Optional[list[dict]]) -> str:
+    """Stable fingerprint of the only annotation inputs that affect the PNG."""
+    s_part: dict[str, Any] = {}
+    if signal is not None:
+        s_part = {
+            "d": signal.direction,
+            "e": signal.entry,
+            "et": signal.entry_type,
+            "sl": signal.stop_loss,
+            "t1": signal.take_profit_1,
+            "t2": signal.take_profit_2,
+            "c": signal.confidence,
+        }
+    p_part: list[dict] = []
+    if patterns:
+        for p in patterns:
+            p_part.append(
+                {
+                    "n": p.get("name"),
+                    "b": p.get("bias"),
+                    "s": p.get("strength"),
+                    "i": p.get("bar_index"),
+                }
+            )
+    blob = json.dumps({"s": s_part, "p": p_part}, sort_keys=True, separators=(",", ":"))
+    return hashlib.md5(blob.encode("utf-8")).hexdigest()  # noqa: S324 (cache key, not security)
+
+
+def _cache_key(coin: str, timeframe: str, bar_ts: int, fp: str) -> str:
+    return f"{coin}|{timeframe}|{bar_ts}|{fp}"
+
+
+def _cache_get(key: str) -> Optional[bytes]:
+    now = time.time()
+    with _CHART_CACHE_LOCK:
+        item = _CHART_CACHE.get(key)
+        if item is None:
+            return None
+        ts, payload = item
+        if now - ts > _CHART_CACHE_TTL:
+            _CHART_CACHE.pop(key, None)
+            return None
+        _CHART_CACHE.move_to_end(key)
+        return payload
+
+
+def _cache_set(key: str, payload: bytes) -> None:
+    with _CHART_CACHE_LOCK:
+        _CHART_CACHE[key] = (time.time(), payload)
+        _CHART_CACHE.move_to_end(key)
+        while len(_CHART_CACHE) > _CHART_CACHE_MAX:
+            _CHART_CACHE.popitem(last=False)
+
+
+def _last_bar_ts(ind: IndicatorBundle) -> int:
+    try:
+        return int(pd.Timestamp(ind.df.index[-1]).timestamp())
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def render_chart(
     coin: str,
     timeframe: str,
@@ -35,7 +115,16 @@ def render_chart(
     patterns: Optional[list[dict]] = None,
     volume_profile: Optional[dict] = None,
     order_flow: Optional[OrderFlowBundle] = None,
+    use_cache: bool = True,
 ) -> bytes:
+    bar_ts = _last_bar_ts(ind)
+    cache_key: Optional[str] = None
+    if use_cache and bar_ts:
+        cache_key = _cache_key(coin, timeframe, bar_ts, _signal_fp(signal, patterns))
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
     df = ind.df.tail(bars).copy()
     df.index = pd.to_datetime(df.index).tz_convert(None)
     df = df.rename(columns={"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"})
@@ -233,10 +322,15 @@ def render_chart(
         last_idx = len(df) - 1
         if signal.entry:
             ax_main.axhline(signal.entry, color="#ffeb3b", linewidth=1.2, linestyle="-", alpha=0.9)
+            entry_type_ru = {
+                "market": "MKT",
+                "limit": "LIMIT",
+                "stop": "STOP",
+            }.get(signal.entry_type, "MKT")
             ax_main.text(
                 last_idx,
                 signal.entry,
-                f" ENTRY {_format_price(signal.entry)}",
+                f" ENTRY {_format_price(signal.entry)} [{entry_type_ru}]",
                 color="#ffeb3b",
                 fontsize=9,
                 fontweight="bold",
@@ -366,10 +460,25 @@ def render_chart(
         except (KeyError, TypeError, ValueError):
             pass
 
+    # Disclaimer + timezone hint (G5). Chart times are UTC because
+    # df.index is tz_convert'd to UTC-naive above.
+    fig.text(
+        0.01,
+        0.005,
+        "Время на графике — UTC. Не финансовый совет, торговля криптовалютой связана с риском.",
+        color="#888",
+        fontsize=7,
+        ha="left",
+        va="bottom",
+    )
+
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110, facecolor="#0e1117", bbox_inches="tight")
     plt.close(fig)
-    return buf.getvalue()
+    payload = buf.getvalue()
+    if cache_key is not None:
+        _cache_set(cache_key, payload)
+    return payload
 
 
 def render_chart_b64(*args, **kwargs) -> str:

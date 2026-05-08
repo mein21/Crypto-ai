@@ -92,8 +92,19 @@ def _avg_body(df: pd.DataFrame, window: int = 14) -> float:
     return val if val > 0 else 0.0
 
 
-def _local_trend(df: pd.DataFrame, end_idx_exclusive: int, lookback: int = 8) -> str:
-    """Trend over the bars BEFORE `end_idx_exclusive`. Returns 'up'|'down'|'flat'."""
+def _local_trend(
+    df: pd.DataFrame,
+    end_idx_exclusive: int,
+    lookback: int = 8,
+    atr: float = 0.0,
+) -> str:
+    """Trend over the bars BEFORE `end_idx_exclusive`. Returns 'up'|'down'|'flat'.
+
+    The threshold scales with realized volatility: at least one ATR (or 1% of
+    price, whichever is larger) of move is required to call a trend. A fixed
+    1% rule under-reports trends on a 1d BTC chart (where 1% is noise) and
+    over-reports them on 15m altcoins (where 1% is a candle).
+    """
     start = max(0, end_idx_exclusive - lookback)
     closes = df["close"].iloc[start:end_idx_exclusive]
     if len(closes) < 3:
@@ -102,10 +113,12 @@ def _local_trend(df: pd.DataFrame, end_idx_exclusive: int, lookback: int = 8) ->
     last = float(closes.iloc[-1])
     if first <= 0:
         return "flat"
-    pct = (last / first - 1.0) * 100.0
-    if pct >= 1.0:
+    move = last - first
+    # Effective threshold: 1 ATR or 1% of price, whichever is larger.
+    atr_thresh = max(atr, first * 0.01) if atr > 0 else first * 0.01
+    if move >= atr_thresh:
         return "up"
-    if pct <= -1.0:
+    if move <= -atr_thresh:
         return "down"
     return "flat"
 
@@ -184,12 +197,12 @@ def _is_spinning_top(b: _Bar, ab: float) -> bool:
 # ---------------------------------------------------------------------------
 # Each returns dict with name/bias/kind/base_strength when matched, else None.
 
-def _detect_one_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
+def _detect_one_bar(df: pd.DataFrame, i: int, ab: float, atr: float = 0.0) -> list[dict]:
     """Return all 1-bar pattern hits at position `i`."""
     if i < 0 or i >= len(df):
         return []
     b = _Bar.from_row(df.iloc[i])
-    trend_before = _local_trend(df, i, lookback=8)
+    trend_before = _local_trend(df, i, lookback=8, atr=atr)
     hits: list[dict] = []
 
     # Doji
@@ -287,13 +300,13 @@ def _detect_one_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
     return hits
 
 
-def _detect_two_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
+def _detect_two_bar(df: pd.DataFrame, i: int, ab: float, atr: float = 0.0) -> list[dict]:
     """Return all 2-bar pattern hits ending at position `i`."""
     if i < 1 or i >= len(df):
         return []
     p = _Bar.from_row(df.iloc[i - 1])
     c = _Bar.from_row(df.iloc[i])
-    trend_before = _local_trend(df, i - 1, lookback=8)
+    trend_before = _local_trend(df, i - 1, lookback=8, atr=atr)
     hits: list[dict] = []
 
     long_p = ab > 0 and p.body >= 0.8 * ab
@@ -421,13 +434,16 @@ def _detect_two_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
             }
         )
 
-    # Tweezer Top: similar highs after uptrend
+    # Tweezer Top: similar highs after uptrend.
+    # Tightened: require the SECOND bar to be a clear bearish reversal (not a
+    # Doji); pure-Doji branches over-matched in noisy ranges. The first bar
+    # may still be the trending bar (bullish) or an inverted hammer.
     high_tol = max(0.001 * c.h, p.rng * 0.05)
     if (
         trend_before == "up"
         and abs(p.h - c.h) <= high_tol
-        and (p.bullish or _is_inverted_hammer_shape(p) or _is_doji(p))
-        and (c.bearish or _is_inverted_hammer_shape(c) or _is_doji(c))
+        and (p.bullish or _is_inverted_hammer_shape(p))
+        and (c.bearish or _is_inverted_hammer_shape(c))
     ):
         hits.append(
             {
@@ -439,13 +455,13 @@ def _detect_two_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
             }
         )
 
-    # Tweezer Bottom: similar lows after downtrend
+    # Tweezer Bottom: similar lows after downtrend (Doji branches removed).
     low_tol = max(0.001 * c.l, p.rng * 0.05)
     if (
         trend_before == "down"
         and abs(p.l - c.l) <= low_tol
-        and (p.bearish or _is_hammer_shape(p) or _is_doji(p))
-        and (c.bullish or _is_hammer_shape(c) or _is_doji(c))
+        and (p.bearish or _is_hammer_shape(p))
+        and (c.bullish or _is_hammer_shape(c))
     ):
         hits.append(
             {
@@ -460,14 +476,14 @@ def _detect_two_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
     return hits
 
 
-def _detect_three_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
+def _detect_three_bar(df: pd.DataFrame, i: int, ab: float, atr: float = 0.0) -> list[dict]:
     """Return all 3-bar pattern hits ending at position `i`."""
     if i < 2 or i >= len(df):
         return []
     a = _Bar.from_row(df.iloc[i - 2])
     b = _Bar.from_row(df.iloc[i - 1])
     c = _Bar.from_row(df.iloc[i])
-    trend_before = _local_trend(df, i - 2, lookback=8)
+    trend_before = _local_trend(df, i - 2, lookback=8, atr=atr)
     hits: list[dict] = []
 
     long_a = ab > 0 and a.body >= 0.8 * ab
@@ -515,7 +531,11 @@ def _detect_three_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
             }
         )
 
-    # Three White Soldiers
+    # Three White Soldiers — kind depends on the trend that preceded it.
+    # After a downtrend it is a textbook reversal; in an existing uptrend it
+    # confirms continuation. Calling it "continuation" unconditionally hid
+    # the most useful TWS signals (the bottom-reversal ones) from the
+    # context-scoring layer.
     if (
         a.bullish
         and b.bullish
@@ -529,17 +549,18 @@ def _detect_three_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
         and b.upper <= 0.3 * b.body
         and c.upper <= 0.3 * c.body
     ):
+        tws_kind = "reversal" if trend_before == "down" else "continuation"
         hits.append(
             {
                 "name": "Three White Soldiers",
                 "name_ru": "Три белых солдата",
                 "bias": "bullish",
-                "kind": "continuation",
+                "kind": tws_kind,
                 "base_strength": 3,
             }
         )
 
-    # Three Black Crows
+    # Three Black Crows — same trend-aware kind classification.
     if (
         a.bearish
         and b.bearish
@@ -553,12 +574,13 @@ def _detect_three_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
         and b.lower <= 0.3 * b.body
         and c.lower <= 0.3 * c.body
     ):
+        tbc_kind = "reversal" if trend_before == "up" else "continuation"
         hits.append(
             {
                 "name": "Three Black Crows",
                 "name_ru": "Три чёрные вороны",
                 "bias": "bearish",
-                "kind": "continuation",
+                "kind": tbc_kind,
                 "base_strength": 3,
             }
         )
@@ -615,6 +637,26 @@ def _detect_three_bar(df: pd.DataFrame, i: int, ab: float) -> list[dict]:
 # Context scoring
 # ---------------------------------------------------------------------------
 
+def _volume_factor(df: pd.DataFrame, i: int, window: int = 20) -> float:
+    """Ratio of bar `i` volume to the rolling average over the prior `window` bars.
+
+    >1.3 = above average (used as a quality boost for reversal/breakout
+    patterns); <0.7 = thin (downgrade). Returns 0.0 if no usable data.
+    """
+    if "volume" not in df.columns or i <= 0:
+        return 0.0
+    start = max(0, i - window)
+    prev_vol = df["volume"].iloc[start:i]
+    prev_vol = prev_vol[prev_vol > 0]
+    if len(prev_vol) < 5:
+        return 0.0
+    avg = float(prev_vol.mean())
+    if avg <= 0:
+        return 0.0
+    cur = float(df["volume"].iloc[i])
+    return cur / avg
+
+
 def _score_and_describe(
     hit: dict,
     df: pd.DataFrame,
@@ -624,7 +666,7 @@ def _score_and_describe(
     atr: float,
     trend_label: Optional[str],
 ) -> dict:
-    """Adjust strength by S/R proximity & trend alignment, build context string."""
+    """Adjust strength by S/R proximity, trend alignment, and relative volume."""
     bias = hit["bias"]
     kind = hit["kind"]
     base = int(hit["base_strength"])
@@ -667,6 +709,19 @@ def _score_and_describe(
             ):
                 score -= 1
                 notes.append("против тренда — сомнительный")
+
+    # Volume confirmation — only meaningful for directional patterns; the
+    # indecision bucket (Doji, Spinning Top) is intentionally skipped.
+    if kind != "indecision":
+        vf = _volume_factor(df, i, window=20)
+        if vf >= 1.5:
+            score += 1
+            notes.append(f"объём ×{vf:.1f}")
+        elif vf >= 1.2:
+            notes.append(f"объём ×{vf:.1f}")
+        elif 0 < vf < 0.7:
+            score -= 1
+            notes.append(f"низкий объём ×{vf:.1f}")
 
     score = max(1, min(3, score))
     bar_offset = i - len(df)  # negative offset, -1 = last bar
@@ -716,13 +771,13 @@ def detect_patterns(
         return []
     ab = _avg_body(df, window=14)
     start = max(2, n - lookback)
-    raw_hits: list[dict] = []
+    raw_hits: list[tuple[int, dict]] = []
     for i in range(start, n):
-        for hit in _detect_one_bar(df, i, ab):
+        for hit in _detect_one_bar(df, i, ab, atr):
             raw_hits.append((i, hit))
-        for hit in _detect_two_bar(df, i, ab):
+        for hit in _detect_two_bar(df, i, ab, atr):
             raw_hits.append((i, hit))
-        for hit in _detect_three_bar(df, i, ab):
+        for hit in _detect_three_bar(df, i, ab, atr):
             raw_hits.append((i, hit))
 
     scored: list[dict] = [
@@ -734,12 +789,22 @@ def detect_patterns(
     return scored
 
 
-def patterns_summary_for_prompt(patterns: list[dict], limit: int = 6) -> str:
-    """Build a short bullet list of the top patterns for the LLM prompt."""
+def patterns_summary_for_prompt(
+    patterns: list[dict], limit: int = 6, min_strength: int = 2
+) -> str:
+    """Build a short bullet list of the top patterns for the LLM prompt.
+
+    Patterns weaker than `min_strength` are skipped — feeding 1/3-strength
+    Doji and Spinning Top hits into the prompt added noise without changing
+    the model's directional view, and consumed tokens.
+    """
     if not patterns:
         return ""
+    filtered = [p for p in patterns if p.get("strength", 0) >= min_strength]
+    if not filtered:
+        return ""
     lines: list[str] = []
-    for p in patterns[:limit]:
+    for p in filtered[:limit]:
         bias_ru = {"bullish": "бычий", "bearish": "медвежий", "neutral": "нейтр."}.get(
             p["bias"], p["bias"]
         )
