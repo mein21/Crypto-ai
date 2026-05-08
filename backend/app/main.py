@@ -388,29 +388,51 @@ def send_alert_endpoint(payload: dict) -> dict:
     return {"ok": ok}
 
 
-# --- Server-side watches storage (best-effort, in-memory) --------------------
-_active_watches: list[dict] = []
+# --- Server-side watches storage (/tmp file for persistence across warm invocations) ---
+import json as _json
+
+_WATCHES_FILE = Path("/tmp/watches.json")
+
+
+def _save_watches(watches: list[dict]) -> None:
+    try:
+        _WATCHES_FILE.write_text(_json.dumps(watches, ensure_ascii=False))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _load_watches() -> list[dict]:
+    try:
+        if _WATCHES_FILE.exists():
+            return _json.loads(_WATCHES_FILE.read_text())
+    except Exception:  # noqa: BLE001
+        pass
+    return []
 
 
 @app.post("/watches/sync")
 def watches_sync(payload: dict) -> dict:
     """Receive the current watches list from the frontend."""
-    global _active_watches
-    _active_watches = payload.get("watches", [])
-    return {"ok": True, "count": len(_active_watches)}
+    watches = payload.get("watches", [])
+    _save_watches(watches)
+    return {"ok": True, "count": len(watches)}
 
 
 @app.get("/watches")
 def watches_get() -> dict:
     """Return current active watches (for Telegram bot)."""
-    return {"watches": _active_watches}
+    return {"watches": _load_watches()}
 
 
-@app.post("/watches/analyze")
-def watches_analyze() -> dict:
-    """Analyze all active watches: fetch price, run indicators, calculate TP/SL probabilities."""
+def analyze_watches(watches: list[dict] | None = None) -> dict:
+    """Analyze watches: fetch price, run indicators, calculate TP/SL probabilities.
+
+    Can be called directly (from Telegram bot) or via the HTTP endpoint.
+    """
+    if watches is None:
+        watches = _load_watches()
     results = []
-    for w in _active_watches:
+    for w in watches:
         coin = w.get("coin", "BTC")
         tf = w.get("timeframe", "4h")
         direction = w.get("direction", "flat")
@@ -591,7 +613,6 @@ def watches_analyze() -> dict:
             else:
                 recommendations.append("Следите за индикаторами — нет явного сигнала")
 
-        from .telegram_notify import _fmt_price
         results.append({
             "coin": coin,
             "timeframe": tf,
@@ -617,6 +638,12 @@ def watches_analyze() -> dict:
         })
 
     return {"watches": results}
+
+
+@app.post("/watches/analyze")
+def watches_analyze_endpoint() -> dict:
+    """HTTP endpoint wrapper for analyze_watches."""
+    return analyze_watches()
 
 
 @app.get("/context", response_model=ContextResponse)

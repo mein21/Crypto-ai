@@ -250,17 +250,13 @@ def handle_update(update: dict) -> None:
 def _handle_watches_info(chat_id: int | str) -> None:
     """Fetch active watches, run analysis, and show TP/SL probabilities."""
     from .telegram_notify import _fmt_price
+    from .main import analyze_watches
 
-    # Try to get analyzed watches from the backend
     try:
-        base_url = os.getenv("BASE_URL", "https://crypto-ai-eta.vercel.app").strip()
-        if not base_url.startswith("http"):
-            base_url = f"https://{base_url}"
-        resp = httpx.post(f"{base_url}/watches/analyze", timeout=30)
-        data = resp.json()
+        data = analyze_watches()
         watches = data.get("watches", [])
     except Exception as exc:
-        log.warning("Failed to fetch watches analysis: %s", exc)
+        log.warning("Failed to analyze watches: %s", exc)
         watches = []
 
     if not watches:
