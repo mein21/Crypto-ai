@@ -54,6 +54,9 @@ class NewsItem(BaseModel):
     source: str = ""
     ts: int = 0
     image: str = ""
+    title_ru: Optional[str] = None
+    impact: Optional[Literal["high", "medium", "low"]] = None
+    sentiment: Optional[Literal["bullish", "neutral", "bearish"]] = None
 
 
 class FearGreed(BaseModel):
