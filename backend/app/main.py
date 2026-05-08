@@ -250,14 +250,42 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
                 df, lookback=10, support=ind.support, resistance=ind.resistance,
                 atr=atr_last, trend_label=summary.get("trend"),
             )
+            # Strategy modules — match /analyze so all 5 cards populate.
+            vp_raw = compute_volume_profile(df)
+            flow_bundle = compute_order_flow(df)
+            flow_raw = flow_bundle.to_summary() if flow_bundle is not None else None
+            alignment_raw = compute_alignment(summary, htf_raw)
+            daily_close: pd.Series | None = None
+            if req.timeframe == "1d":
+                daily_close = df["close"].astype(float)
+            else:
+                try:
+                    daily_df = fetch_ohlcv(coin, "1d")
+                    daily_close = daily_df["close"].astype(float)
+                except Exception as e:  # noqa: BLE001
+                    log.info("Daily close fetch failed for sentiment (best-deal): %s", e)
+            sentiment_raw = compute_sentiment(
+                fear_greed=fng_raw, news=news_raw, daily_close=daily_close
+            )
+            try:
+                strategy_raw = walk_forward_backtest(df)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Walk-forward backtest failed (best-deal): %s", e)
+                strategy_raw = None
             extra_context = {
                 "htf_trends": htf_raw, "fear_greed": fng_raw,
                 "news_titles": [n.get("title_ru") or n.get("title", "") for n in news_raw][:5],
                 "onchain": onchain_raw, "coin": coin, "patterns": patterns_raw,
+                "volume_profile": vp_raw, "order_flow": flow_raw,
+                "alignment": alignment_raw, "sentiment": sentiment_raw,
+                "strategy_stats": strategy_raw,
             }
             analysis = analyze(coin, req.timeframe, summary, extra_context=extra_context)
             analysis.patterns = [CandlePattern(**p) for p in patterns_raw]
-            chart_b64 = render_chart_b64(coin, req.timeframe, ind, signal=analysis.signal, patterns=patterns_raw)
+            chart_b64 = render_chart_b64(
+                coin, req.timeframe, ind, signal=analysis.signal, patterns=patterns_raw,
+                volume_profile=vp_raw, order_flow=flow_bundle,
+            )
             onchain_obj: Onchain | None = None
             if onchain_raw and coin == "BTC":
                 onchain_obj = Onchain(btc=BtcOnchain(**onchain_raw))
@@ -270,6 +298,11 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
                 news=[NewsItem(**n) for n in news_raw],
                 fear_greed=FearGreed(**fng_raw) if fng_raw else None,
                 onchain=onchain_obj,
+                volume_profile=VolumeProfile(**vp_raw) if vp_raw else None,
+                order_flow=OrderFlow(**flow_raw) if flow_raw else None,
+                alignment=Alignment(**alignment_raw) if alignment_raw else None,
+                sentiment=Sentiment(**sentiment_raw) if sentiment_raw else None,
+                strategy_stats=StrategyStats(**strategy_raw) if strategy_raw else None,
             )
         except Exception as e:  # noqa: BLE001
             log.warning("Full analysis for best deal %s failed: %s", best.coin, e)
