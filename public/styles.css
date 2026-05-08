@@ -2,6 +2,7 @@
   --bg: #0a0d14;
   --bg-elev: #11151f;
   --bg-card: #131826;
+  --surface-2: #11151f;
   --border: #1f2638;
   --text: #e6e8ee;
   --muted: #8a93a6;
@@ -37,6 +38,11 @@ body {
   max-width: 1180px;
   margin: 0 auto;
   padding: 32px 20px 64px;
+  /* Use safe-area insets so the layout breathes correctly on devices with
+     notches/home-bars (iPhone, Android with curved corners). */
+  padding-left: max(20px, env(safe-area-inset-left));
+  padding-right: max(20px, env(safe-area-inset-right));
+  padding-bottom: max(64px, calc(env(safe-area-inset-bottom) + 32px));
 }
 
 .hero {
@@ -152,13 +158,19 @@ h1 {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 8px 14px;
+  padding: 10px 14px;
   border-radius: 10px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
   transition: all 0.15s ease;
   user-select: none;
+  /* Ensure tap target is large enough on touch devices */
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
 }
 .chip:hover {
   border-color: var(--accent);
@@ -196,6 +208,9 @@ h1 {
 .analyze-btn:disabled {
   opacity: 0.7;
   cursor: progress;
+}
+.analyze-btn {
+  -webkit-tap-highlight-color: transparent;
 }
 
 .btn-content,
@@ -319,14 +334,6 @@ h1 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
-}
-@media (max-width: 760px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
-  .hero {
-    flex-direction: column;
-  }
 }
 
 .card h3 {
@@ -624,4 +631,286 @@ h1 {
   margin-top: 3px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* --- On-chain panel ----------------------------------------------------- */
+
+.onchain-card {
+  display: flex;
+  flex-direction: column;
+}
+.onchain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.onchain-tile {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--muted);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.onchain-tile.long {
+  border-left-color: var(--green);
+}
+.onchain-tile.short {
+  border-left-color: var(--red);
+}
+.onchain-tile.warn {
+  border-left-color: var(--yellow);
+}
+.onchain-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.onchain-value {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", monospace;
+  color: var(--text);
+  line-height: 1.2;
+}
+.onchain-sub {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* --- Mobile / responsive breakpoints ----------------------------------- */
+
+/* Make sticky correlation labels opaque against scroll background */
+.corr-table tbody th {
+  background: var(--bg-card);
+}
+
+/* Tablet & narrow desktop */
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phone — primary mobile breakpoint */
+@media (max-width: 720px) {
+  .app {
+    padding-top: 18px;
+    padding-bottom: max(48px, calc(env(safe-area-inset-bottom) + 24px));
+  }
+
+  .hero {
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+  .brand {
+    gap: 14px;
+  }
+  .logo {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+    border-radius: 12px;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+  }
+  .subtitle {
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .status {
+    font-size: 12px;
+    padding: 6px 12px;
+    align-self: flex-start;
+  }
+
+  .card {
+    padding: 14px 14px;
+    border-radius: 14px;
+  }
+
+  .controls {
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .control-group {
+    flex: 0 0 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  .analyze-btn {
+    width: 100%;
+    min-width: 0;
+    padding: 14px 16px;
+  }
+
+  /* Market context: single column, F&G smaller */
+  .market-context {
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .fng-value {
+    font-size: 36px;
+  }
+  .fng-label {
+    font-size: 12px;
+  }
+  .fng-bar-legend {
+    font-size: 9px;
+  }
+
+  /* Correlation: visible scroll hint + sticky first column */
+  .corr-wrap {
+    margin-left: -14px;
+    margin-right: -14px;
+    padding: 0 14px 6px;
+    /* iOS momentum scrolling */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .corr-table {
+    font-size: 10px;
+    min-width: 480px;
+  }
+  .corr-table th,
+  .corr-table td {
+    padding: 4px 3px;
+  }
+  .corr-table tbody th {
+    /* Keep first column visible while scrolling horizontally */
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    box-shadow: 1px 0 0 var(--border);
+  }
+
+  /* Chart card */
+  .chart-card {
+    padding: 12px 12px 14px;
+  }
+  .chart-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 0;
+  }
+  .chart-header h2 {
+    font-size: 16px;
+  }
+  .header-actions {
+    justify-content: space-between;
+  }
+  .signal-badge {
+    flex: 1;
+    text-align: center;
+    padding: 8px 10px;
+  }
+
+  /* HTF strip: stack to single column for clarity on narrow screens */
+  .htf-strip {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .htf-tile {
+    padding: 10px 12px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 10px;
+  }
+  .htf-trend {
+    font-size: 14px;
+  }
+
+  /* Result grid: 1 column already (≤900px), tighter gap */
+  .grid {
+    gap: 12px;
+  }
+
+  /* Trade idea / Indicators: stack k/v per row for legibility */
+  .kv {
+    grid-template-columns: 1fr;
+    gap: 2px 0;
+    font-size: 13px;
+  }
+  .kv .k {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 6px;
+  }
+  .kv .k:first-child {
+    margin-top: 0;
+  }
+  .kv .v {
+    text-align: left;
+    word-break: break-word;
+  }
+
+  /* Levels: compact rows */
+  .level-row {
+    font-size: 12px;
+    padding: 5px 10px;
+  }
+
+  /* On-chain tiles — 2 columns on phone, 1 column on tiny screens */
+  .onchain-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .onchain-tile {
+    padding: 10px 12px;
+  }
+  .onchain-value {
+    font-size: 15px;
+  }
+
+  /* News list: tighter line-height, hyphenate */
+  .news-list a {
+    font-size: 13px;
+    word-break: break-word;
+    -webkit-hyphens: auto;
+    hyphens: auto;
+  }
+
+  /* Narrative text */
+  #narrative {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+}
+
+/* Very small phones (≤380px, e.g. iPhone SE 1st gen) */
+@media (max-width: 380px) {
+  .app {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+  h1 {
+    font-size: 20px;
+  }
+  .subtitle {
+    font-size: 12px;
+  }
+  .chip {
+    padding: 9px 10px;
+    font-size: 12px;
+  }
+  .fng-value {
+    font-size: 32px;
+  }
+  .onchain-grid {
+    grid-template-columns: 1fr;
+  }
+  .signal-badge {
+    font-size: 12px;
+    letter-spacing: 0.02em;
+  }
 }

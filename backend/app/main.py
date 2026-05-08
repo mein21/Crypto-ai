@@ -21,14 +21,18 @@ from .context import (
 from .data import SYMBOL_MAP, fetch_ohlcv
 from .indicators import compute_all
 from .llm import analyze
+from .onchain import fetch_onchain
 from .schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
+    BtcOnchain,
     ContextResponse,
     CorrelationMatrix,
+    EthOnchain,
     FearGreed,
     HtfTrend,
     NewsItem,
+    Onchain,
 )
 
 load_dotenv()
@@ -83,14 +87,23 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
     htf_raw = fetch_higher_tf_trends(req.coin, req.timeframe)
     fng_raw = fetch_fear_greed()
     news_raw = fetch_news_for_coin(req.coin, limit=5)
+    onchain_raw = fetch_onchain(req.coin)
 
     extra_context = {
         "htf_trends": htf_raw,
         "fear_greed": fng_raw,
         "news_titles": [n.get("title", "") for n in news_raw][:5],
+        "onchain": onchain_raw,
+        "coin": req.coin,
     }
     analysis = analyze(req.coin, req.timeframe, summary, extra_context=extra_context)
     chart_b64 = render_chart_b64(req.coin, req.timeframe, ind, signal=analysis.signal)
+
+    onchain_obj: Onchain | None = None
+    if onchain_raw and req.coin == "BTC":
+        onchain_obj = Onchain(btc=BtcOnchain(**onchain_raw))
+    elif onchain_raw and req.coin == "ETH":
+        onchain_obj = Onchain(eth=EthOnchain(**onchain_raw))
 
     return AnalyzeResponse(
         analysis=analysis,
@@ -100,6 +113,7 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         htf_trends=[HtfTrend(**h) for h in htf_raw],
         news=[NewsItem(**n) for n in news_raw],
         fear_greed=FearGreed(**fng_raw) if fng_raw else None,
+        onchain=onchain_obj,
     )
 
 
