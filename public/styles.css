@@ -1436,10 +1436,16 @@ h1 {
 }
 
 .best-deal-card {
-  background: linear-gradient(var(--bg-card), var(--bg-card)) padding-box,
-    linear-gradient(135deg, #f59e0b, #ef6c00) border-box;
-  border: 2px solid transparent;
-  border-radius: 16px;
+  position: relative;
+  background: var(--bg-surface);
+  backdrop-filter: var(--blur-md) saturate(160%);
+  -webkit-backdrop-filter: var(--blur-md) saturate(160%);
+  border: 1.5px solid rgba(245, 158, 11, 0.5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card), 0 0 18px -4px rgba(245, 158, 11, 0.35), 0 0 40px -10px rgba(245, 158, 11, 0.15);
+  overflow: hidden;
+  animation: fade-up 0.7s var(--easing) both;
+  transition: box-shadow 0.4s var(--easing), border-color 0.4s var(--easing);
 }
 
 .best-deal-header {
