@@ -217,6 +217,109 @@
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Position sizing (C8) — fixed-fraction risk model. Lives entirely client-side
+  // so equity never leaves the browser; persisted in localStorage.
+  // ---------------------------------------------------------------------------
+  const PS_KEY_EQUITY = "crypto-ai.position-sizing.equity";
+  const PS_KEY_RISK = "crypto-ai.position-sizing.risk-pct";
+  const PS_DEFAULT_EQUITY = 10000;
+  const PS_DEFAULT_RISK_PCT = 1;
+
+  function loadPSSettings() {
+    let equity = parseFloat(localStorage.getItem(PS_KEY_EQUITY));
+    let risk = parseFloat(localStorage.getItem(PS_KEY_RISK));
+    if (!Number.isFinite(equity) || equity <= 0) equity = PS_DEFAULT_EQUITY;
+    if (!Number.isFinite(risk) || risk <= 0 || risk > 100) risk = PS_DEFAULT_RISK_PCT;
+    return { equity, risk };
+  }
+
+  function savePSSettings(equity, risk) {
+    if (Number.isFinite(equity) && equity > 0) localStorage.setItem(PS_KEY_EQUITY, String(equity));
+    if (Number.isFinite(risk) && risk > 0 && risk <= 100) localStorage.setItem(PS_KEY_RISK, String(risk));
+  }
+
+  function computePositionSizing(entry, stop, equity, riskPct) {
+    if (!Number.isFinite(entry) || !Number.isFinite(stop) || entry <= 0) return null;
+    if (!Number.isFinite(equity) || equity <= 0) return null;
+    if (!Number.isFinite(riskPct) || riskPct <= 0) return null;
+    const slDist = Math.abs(entry - stop);
+    if (slDist <= 0) return null;
+    const slPct = (slDist / entry) * 100;
+    const riskAmount = (equity * riskPct) / 100;
+    const units = riskAmount / slDist;
+    const notional = units * entry;
+    const leverage = notional / equity;
+    return { units, notional, riskAmount, slPct, leverage, slDist };
+  }
+
+  function fmtUnits(u) {
+    if (!Number.isFinite(u) || u <= 0) return "—";
+    if (u >= 1000) return u.toFixed(2);
+    if (u >= 1) return u.toFixed(4);
+    if (u >= 0.001) return u.toFixed(6);
+    return u.toFixed(8);
+  }
+
+  function fmtUSD(v) {
+    if (!Number.isFinite(v)) return "—";
+    return v.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  }
+
+  function renderPositionSizing(coin, direction, entry, stop) {
+    const wrap = $("position-sizing");
+    const isTrade = (direction === "long" || direction === "short") && Number.isFinite(entry) && Number.isFinite(stop);
+    if (!isTrade) {
+      wrap.hidden = true;
+      return;
+    }
+    wrap.hidden = false;
+    const eqInput = $("ps-equity");
+    const riskInput = $("ps-risk");
+    const { equity: defEq, risk: defRisk } = loadPSSettings();
+    if (!eqInput.value) eqInput.value = String(defEq);
+    if (!riskInput.value) riskInput.value = String(defRisk);
+
+    const update = () => {
+      const e = parseFloat(eqInput.value);
+      const r = parseFloat(riskInput.value);
+      const out = $("ps-output");
+      if (!Number.isFinite(e) || e <= 0 || !Number.isFinite(r) || r <= 0 || r > 100) {
+        out.innerHTML = `<p class="muted ps-empty">Введите баланс &gt; 0 и риск 0.1–100%.</p>`;
+        return;
+      }
+      savePSSettings(e, r);
+      const ps = computePositionSizing(entry, stop, e, r);
+      if (!ps) {
+        out.innerHTML = `<p class="muted ps-empty">Не удалось рассчитать размер.</p>`;
+        return;
+      }
+      out.innerHTML = "";
+      const rows = [
+        ["Размер позиции", `${fmtUnits(ps.units)} ${coin}`, ""],
+        ["Объём (notional)", `$${fmtUSD(ps.notional)}`, "warn"],
+        ["SL дистанция", `${ps.slPct.toFixed(2)}%`, "short"],
+        ["Макс. убыток", `−$${fmtUSD(ps.riskAmount)}`, "short"],
+      ];
+      if (ps.leverage > 1.05) {
+        rows.push(["Плечо", `${ps.leverage.toFixed(2)}×`, "warn"]);
+      }
+      rows.forEach(([k, v, cls]) => {
+        const kEl = document.createElement("div");
+        kEl.className = "k";
+        kEl.textContent = k;
+        const vEl = document.createElement("div");
+        vEl.className = "v " + cls;
+        vEl.textContent = v;
+        out.appendChild(kEl);
+        out.appendChild(vEl);
+      });
+    };
+    eqInput.oninput = update;
+    riskInput.oninput = update;
+    update();
+  }
+
   function fmtPrice(v) {
     if (v == null || isNaN(v)) return "—";
     const abs = Math.abs(v);
@@ -333,6 +436,7 @@
     });
 
     $("rationale").textContent = sig.rationale || "";
+    renderPositionSizing(analysis.coin, sig.direction, sig.entry, sig.stop_loss);
 
     const ind = $("indicators-kv");
     ind.innerHTML = "";

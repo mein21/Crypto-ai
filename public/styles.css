@@ -400,6 +400,78 @@ h1 {
   color: var(--yellow);
 }
 
+/* Position sizing (C8) */
+.position-sizing {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+.position-sizing h4 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.ps-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ps-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ps-input input {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg-elev);
+  color: var(--text, #e8edf7);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ps-input input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.18);
+}
+.ps-input input::-webkit-inner-spin-button,
+.ps-input input::-webkit-outer-spin-button {
+  opacity: 0.4;
+}
+.ps-output {
+  margin: 0;
+}
+.ps-empty {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.ps-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+.ps-hint code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--bg-elev);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+@media (max-width: 480px) {
+  .ps-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
 .rationale {
   margin-top: 10px;
   font-size: 13px;
