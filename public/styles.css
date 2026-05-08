@@ -1685,3 +1685,15 @@ h1 {
   color: var(--red, #ef5350);
   background: rgba(239, 83, 80, 0.1);
 }
+.send-to-bot-btn {
+  margin-top: 16px;
+  width: 100%;
+  justify-content: center;
+  background: var(--bg-surface);
+  border: 1px solid rgba(59, 130, 246, 0.5);
+  color: #3b82f6;
+}
+.send-to-bot-btn:hover {
+  background: rgba(59, 130, 246, 0.12);
+  box-shadow: 0 0 16px rgba(59, 130, 246, 0.3);
+}

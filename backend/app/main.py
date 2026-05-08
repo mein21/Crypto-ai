@@ -646,6 +646,99 @@ def watches_analyze_endpoint() -> dict:
     return analyze_watches()
 
 
+@app.post("/watches/analyze-and-send")
+def watches_analyze_and_send(payload: dict) -> dict:
+    """Receive watches from the frontend, analyze, and send results to Telegram.
+
+    This avoids the cross-instance problem on Vercel serverless:
+    the frontend (localStorage) sends watches directly, so no server-side
+    persistence is needed.
+    """
+    from .telegram_notify import send_telegram_message, _fmt_price
+
+    watches = payload.get("watches", [])
+    if not watches:
+        return {"ok": False, "error": "no_watches"}
+
+    _save_watches(watches)
+
+    data = analyze_watches(watches)
+    analyzed = data.get("watches", [])
+
+    sent_count = 0
+    for w in analyzed:
+        if w.get("error"):
+            continue
+
+        coin = w.get("coin", "?")
+        tf = w.get("timeframe", "?")
+        direction = w.get("direction", "flat")
+        dir_emoji = {"long": "\U0001f7e2 ЛОНГ", "short": "\U0001f534 ШОРТ"}.get(direction, "\u26aa ФЛЭТ")
+        entry = w.get("entry")
+        stop_loss = w.get("stop_loss")
+        tp1 = w.get("take_profit_1")
+        tp2 = w.get("take_profit_2")
+        tp1_hit = w.get("tp1_hit", False)
+        current_price = w.get("current_price")
+        pnl_pct = w.get("pnl_pct", 0)
+        tp_prob = w.get("tp_probability", 50)
+        sl_prob = w.get("sl_probability", 50)
+        adjustments = w.get("adjustments", [])
+        recommendations = w.get("recommendations", [])
+        indicators = w.get("indicators", {})
+
+        pnl_emoji = "\U0001f4b0" if pnl_pct >= 0 else "\U0001f4c9"
+        pnl_sign = "+" if pnl_pct >= 0 else ""
+
+        tp_bar = "\U0001f7e2" * max(1, round(tp_prob / 10)) + "\u26aa" * max(0, 10 - max(1, round(tp_prob / 10)))
+        sl_bar = "\U0001f534" * max(1, round(sl_prob / 10)) + "\u26aa" * max(0, 10 - max(1, round(sl_prob / 10)))
+
+        lines = [
+            f"*\U0001f441 {coin}/USDT \u00b7 {tf}*",
+            f"{dir_emoji}",
+            f"",
+            f"\U0001f4b5 Цена: `{_fmt_price(current_price)}`",
+            f"\U0001f3af Вход: `{_fmt_price(entry)}`",
+            f"{pnl_emoji} P&L: `{pnl_sign}{pnl_pct:.2f}%`",
+            f"",
+            f"*Шансы:*",
+            f"TP: {tp_bar} *{tp_prob:.0f}%*",
+            f"SL: {sl_bar} *{sl_prob:.0f}%*",
+            f"",
+            f"*\U0001f4ca Уровни:*",
+            f"  SL: `{_fmt_price(stop_loss)}`",
+            f"  TP1: `{_fmt_price(tp1)}`{'  \u2705' if tp1_hit else ''}",
+        ]
+        if tp2:
+            lines.append(f"  TP2: `{_fmt_price(tp2)}`")
+
+        lines.append(f"")
+        lines.append(f"*\U0001f4c8 Индикаторы:*")
+        lines.append(f"  Тренд: {indicators.get('trend', '\u2014')}")
+        lines.append(f"  RSI: {indicators.get('rsi', '\u2014')}")
+        lines.append(f"  MACD: {indicators.get('macd_state', '\u2014')}")
+
+        if adjustments:
+            lines.append(f"")
+            lines.append(f"*\U0001f9ee Анализ:*")
+            for adj in adjustments[:5]:
+                lines.append(f"  \u2022 {adj}")
+
+        if recommendations:
+            lines.append(f"")
+            lines.append(f"*\U0001f4a1 Рекомендации:*")
+            for rec in recommendations:
+                lines.append(f"  \u27a1 {rec}")
+
+        if send_telegram_message("\n".join(lines)):
+            sent_count += 1
+
+    if sent_count > 0:
+        send_telegram_message(f"\U0001f441 Активных отслеживаний: *{sent_count}*")
+
+    return {"ok": True, "sent": sent_count, "analyzed": len(analyzed)}
+
+
 @app.get("/context", response_model=ContextResponse)
 def context_endpoint() -> ContextResponse:
     fng = fetch_fear_greed()

@@ -949,6 +949,37 @@
     }
   }
 
+  async function sendWatchesToBot() {
+    const btn = $("send-to-bot-btn");
+    btn.querySelector(".btn-content").hidden = true;
+    btn.querySelector(".btn-spinner").hidden = false;
+    btn.disabled = true;
+    try {
+      const r = await fetch(
+        `${API_BASE}/watches/analyze-and-send`,
+        withAuth({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ watches }),
+        }),
+      );
+      const data = await r.json();
+      if (data.ok && data.sent > 0) {
+        alert(`\u2705 \u041e\u0442\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u043e ${data.sent} \u0430\u043d\u0430\u043b\u0438\u0437(\u043e\u0432) \u0432 Telegram`);
+      } else if (data.ok && data.sent === 0) {
+        alert("\u26a0\ufe0f \u041d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445 \u0434\u043b\u044f \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438 (\u043e\u0448\u0438\u0431\u043a\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0438\u044f \u0446\u0435\u043d\u044b)");
+      } else {
+        alert("\u274c \u041e\u0448\u0438\u0431\u043a\u0430 \u043e\u0442\u043f\u0440\u0430\u0432\u043a\u0438");
+      }
+    } catch {
+      alert("\u274c \u041e\u0448\u0438\u0431\u043a\u0430 \u0441\u0435\u0442\u0438");
+    } finally {
+      btn.querySelector(".btn-content").hidden = false;
+      btn.querySelector(".btn-spinner").hidden = true;
+      btn.disabled = false;
+    }
+  }
+
   function setupThemeToggle() {
     const btn = $("theme-toggle");
     if (!btn) return;
@@ -971,6 +1002,7 @@
     $("analyze-btn").addEventListener("click", analyze);
     $("best-deal-btn").addEventListener("click", bestDeal);
     $("notify-btn").addEventListener("click", notifyCheck);
+    $("send-to-bot-btn").addEventListener("click", sendWatchesToBot);
     checkHealth();
     loadContext();
     renderWatches();
