@@ -27,7 +27,40 @@ def rsi(series: pd.Series, length: int = 14) -> pd.Series:
     avg_loss = loss.ewm(alpha=1 / length, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     out = 100 - (100 / (1 + rs))
+    # Disambiguate the divide-by-zero / NaN cases. When loss == 0 and gain > 0
+    # RSI is 100 by definition; when both are 0 (totally flat) treat it as 50.
+    flat = (avg_gain == 0) & (avg_loss == 0)
+    only_gain = (avg_loss == 0) & (avg_gain > 0)
+    out = out.where(~only_gain, 100.0)
+    out = out.where(~flat, 50.0)
     return out.fillna(50)
+
+
+def adx(df: pd.DataFrame, length: int = 14) -> pd.Series:
+    """Average Directional Index — Wilder smoothing.
+
+    Used as a trend-strength gate (≥25 = strong trend, <20 = chop). Prevents
+    the rules-based engine from issuing trend-following signals during
+    ranging conditions where it has no edge.
+    """
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    close = df["close"].astype(float)
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [(high - low).abs(), (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1,
+    ).max(axis=1)
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = ((up_move > down_move) & (up_move > 0)).astype(float) * up_move.clip(lower=0)
+    minus_dm = ((down_move > up_move) & (down_move > 0)).astype(float) * down_move.clip(lower=0)
+    alpha = 1 / length
+    atr_w = tr.ewm(alpha=alpha, adjust=False).mean()
+    plus_di = 100 * plus_dm.ewm(alpha=alpha, adjust=False).mean() / atr_w.replace(0, np.nan)
+    minus_di = 100 * minus_dm.ewm(alpha=alpha, adjust=False).mean() / atr_w.replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    return dx.ewm(alpha=alpha, adjust=False).mean().fillna(0.0)
 
 
 def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:
@@ -98,6 +131,56 @@ def cluster_levels(prices: list[float], current: float, atr_value: float, max_le
     return means[:max_levels]
 
 
+def _classify_macd(macd_df: pd.DataFrame) -> str:
+    """Six-bucket MACD state — captures both side and momentum direction.
+
+    States: бычий-разгон / бычий / разворот вверх / медвежий-разгон / медвежий
+            / разворот вниз / нейтрально
+    """
+    if len(macd_df) < 3:
+        return "нейтрально"
+    macd_v = float(macd_df["macd"].iloc[-1])
+    sig_v = float(macd_df["signal"].iloc[-1])
+    hist = macd_df["hist"]
+    h0 = float(hist.iloc[-1])
+    h1 = float(hist.iloc[-2])
+    above = macd_v > sig_v
+    expanding = abs(h0) > abs(h1)
+    flipped_up = h0 > 0 and h1 <= 0
+    flipped_down = h0 < 0 and h1 >= 0
+    if flipped_up:
+        return "разворот вверх"
+    if flipped_down:
+        return "разворот вниз"
+    if above and h0 > 0:
+        return "бычий-разгон" if expanding else "бычий"
+    if not above and h0 < 0:
+        return "медвежий-разгон" if expanding else "медвежий"
+    return "нейтрально"
+
+
+def _bb_width_state(bb_df: pd.DataFrame, lookback: int = 100) -> tuple[float, str]:
+    """Bollinger band width as fraction of mid + percentile-based regime label."""
+    if bb_df.empty or len(bb_df) < 20:
+        return 0.0, "нет данных"
+    width = (bb_df["bb_upper"] - bb_df["bb_lower"]).abs() / bb_df["bb_mid"].replace(0, np.nan)
+    width = width.dropna()
+    if width.empty:
+        return 0.0, "нет данных"
+    last = float(width.iloc[-1])
+    tail = width.tail(lookback)
+    if len(tail) < 20 or tail.max() == 0:
+        return last, "нет данных"
+    rank = (tail < last).mean()
+    if rank <= 0.2:
+        regime = "сжатие"  # squeeze — breakout-prone
+    elif rank >= 0.8:
+        regime = "расширение"  # expansion — late move, expect contraction
+    else:
+        regime = "нормальная"
+    return last, regime
+
+
 @dataclass
 class IndicatorBundle:
     df: pd.DataFrame
@@ -108,6 +191,7 @@ class IndicatorBundle:
     macd: pd.DataFrame = field(default=None)  # type: ignore[assignment]
     bb: pd.DataFrame = field(default=None)  # type: ignore[assignment]
     atr: pd.Series = field(default=None)  # type: ignore[assignment]
+    adx: pd.Series = field(default=None)  # type: ignore[assignment]
     support: list[float] = field(default_factory=list)
     resistance: list[float] = field(default_factory=list)
 
@@ -121,8 +205,10 @@ class IndicatorBundle:
         sig_v = float(self.macd["signal"].iloc[-1])
         hist_v = float(self.macd["hist"].iloc[-1])
         bb_l = float(self.bb["bb_lower"].iloc[-1])
+        bb_m = float(self.bb["bb_mid"].iloc[-1]) if not np.isnan(self.bb["bb_mid"].iloc[-1]) else float("nan")
         bb_u = float(self.bb["bb_upper"].iloc[-1])
         atr_v = float(self.atr.iloc[-1])
+        adx_v = float(self.adx.iloc[-1]) if self.adx is not None and not np.isnan(self.adx.iloc[-1]) else 0.0
         close = float(last["close"])
 
         if close > ema_long_v and ema_fast_v > ema_slow_v:
@@ -139,7 +225,18 @@ class IndicatorBundle:
         else:
             rsi_state = "нейтрально"
 
-        macd_state = "бычий" if hist_v > 0 and macd_v > sig_v else ("медвежий" if hist_v < 0 and macd_v < sig_v else "нейтрально")
+        macd_state = _classify_macd(self.macd)
+        bb_width, bb_state = _bb_width_state(self.bb)
+
+        if adx_v >= 25:
+            adx_state = "сильный"
+        elif adx_v <= 18:
+            adx_state = "слабый"
+        else:
+            adx_state = "умеренный"
+
+        # ATR as percentage of price — used by callers as a volatility filter.
+        atr_pct = (atr_v / close * 100.0) if close > 0 else 0.0
 
         return {
             "close": close,
@@ -153,8 +250,14 @@ class IndicatorBundle:
             "macd_hist": hist_v,
             "macd_state": macd_state,
             "bb_lower": bb_l,
+            "bb_mid": bb_m,
             "bb_upper": bb_u,
+            "bb_width": bb_width,
+            "bb_state": bb_state,
             "atr": atr_v,
+            "atr_pct": atr_pct,
+            "adx": adx_v,
+            "adx_state": adx_state,
             "trend": trend,
             "support": self.support,
             "resistance": self.resistance,
@@ -170,6 +273,7 @@ def compute_all(df: pd.DataFrame) -> IndicatorBundle:
     macd_df = macd(close)
     bb_df = bollinger(close)
     atr_s = atr(df, 14)
+    adx_s = adx(df, 14)
     res_raw, sup_raw = find_pivots(df, left=5, right=5)
     last_close = float(close.iloc[-1])
     atr_v = float(atr_s.iloc[-1]) if not np.isnan(atr_s.iloc[-1]) else last_close * 0.01
@@ -189,6 +293,7 @@ def compute_all(df: pd.DataFrame) -> IndicatorBundle:
         macd=macd_df,
         bb=bb_df,
         atr=atr_s,
+        adx=adx_s,
         support=sorted(set(support))[:4],
         resistance=sorted(set(resistance))[:4],
     )

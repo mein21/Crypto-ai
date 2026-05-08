@@ -23,6 +23,7 @@ class Signal(BaseModel):
     take_profit_2: Optional[float] = None
     confidence: int = Field(0, ge=0, le=100)
     rationale: str = ""
+    rr: Optional[float] = Field(default=None, description="Risk:reward to TP1 — populated by validation.")
 
 
 class CandlePattern(BaseModel):
