@@ -13,8 +13,13 @@ from typing import Any
 
 import httpx
 
+from .alignment import alignment_summary_for_prompt
+from .backtest import backtest_summary_for_prompt
+from .order_flow import order_flow_summary_for_prompt
 from .patterns import patterns_summary_for_prompt
 from .schemas import Analysis, Signal
+from .sentiment import sentiment_summary_for_prompt
+from .volume_profile import volume_profile_summary_for_prompt
 
 log = logging.getLogger(__name__)
 
@@ -91,11 +96,39 @@ def _build_user_prompt(
                     "\nСвежие свечные паттерны (от новых к старым, последние 10 баров):\n"
                     + ps
                 )
+        vp = extra.get("volume_profile")
+        if vp:
+            vps = volume_profile_summary_for_prompt(vp)
+            if vps:
+                parts.append("\nVolume profile:\n" + vps)
+        flow = extra.get("order_flow")
+        if flow:
+            fs = order_flow_summary_for_prompt(flow)
+            if fs:
+                parts.append("\nOrder flow (CVD):\n" + fs)
+        alignment = extra.get("alignment")
+        if alignment:
+            als = alignment_summary_for_prompt(alignment)
+            if als:
+                parts.append("\nMulti-TF alignment:\n" + als)
+        sentiment = extra.get("sentiment")
+        if sentiment:
+            ss = sentiment_summary_for_prompt(sentiment)
+            if ss:
+                parts.append("\nSentiment:\n" + ss)
+        strategy = extra.get("strategy_stats")
+        if strategy:
+            bs = backtest_summary_for_prompt(strategy)
+            if bs:
+                parts.append("\nWalk-forward (rules):\n" + bs)
     parts.append(
         "\nУчти контекст старших ТФ (если они идут против анализируемого ТФ — снижай уверенность),"
         " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность), заголовки новостей"
-        " (упомяни их в narrative, если они существенны) и свежие свечные паттерны."
-        " Сделай анализ и торговую идею. Ответь ТОЛЬКО JSON по указанной схеме."
+        " (упомяни их в narrative, если они существенны), свежие свечные паттерны, профиль объёма"
+        " (POC/VAH/VAL — ключевые магнитные уровни), CVD-дивергенции, multi-TF alignment"
+        " (если score < 25 — снижай confidence), композитный sentiment и историческую"
+        " статистику стратегии (winrate / PF). Сделай анализ и торговую идею."
+        " Ответь ТОЛЬКО JSON по указанной схеме."
     )
     return "\n".join(parts)
 
@@ -258,6 +291,69 @@ def _rules_based_fallback(
         rationale_parts.append("Свежие бычьи паттерны ослабляют идею шорта.")
     if indecision and direction != "flat":
         confidence = max(20, confidence - 5)
+
+    # Order flow / CVD divergence
+    flow = (extra or {}).get("order_flow") or {}
+    div = flow.get("divergence", "none")
+    if direction == "long" and div == "bullish":
+        confidence = min(85, confidence + 8)
+        rationale_parts.append("Бычья CVD-дивергенция подтверждает покупателей.")
+    elif direction == "long" and div == "bearish":
+        confidence = max(15, confidence - 12)
+        rationale_parts.append("Медвежья CVD-дивергенция: на росте нет объёма.")
+    elif direction == "short" and div == "bearish":
+        confidence = min(85, confidence + 8)
+        rationale_parts.append("Медвежья CVD-дивергенция подтверждает продавцов.")
+    elif direction == "short" and div == "bullish":
+        confidence = max(15, confidence - 12)
+        rationale_parts.append("Бычья CVD-дивергенция: покупатели абсорбируют слив.")
+
+    # Volume profile — penalty for trading against the value area
+    vp = (extra or {}).get("volume_profile") or {}
+    pos = vp.get("position")
+    if direction == "long" and pos == "below_va":
+        confidence = max(15, confidence - 8)
+        rationale_parts.append("Цена ниже зоны стоимости — лонг идёт против контекста профиля.")
+    elif direction == "short" and pos == "above_va":
+        confidence = max(15, confidence - 8)
+        rationale_parts.append("Цена выше зоны стоимости — шорт идёт против контекста профиля.")
+
+    # Multi-TF alignment
+    alignment = (extra or {}).get("alignment") or {}
+    align_dir = alignment.get("direction", 0)
+    align_score = float(alignment.get("score", 0) or 0)
+    if direction == "long" and align_dir > 0 and align_score >= 50:
+        confidence = min(90, confidence + 10)
+        rationale_parts.append("Старшие ТФ согласованы вверх.")
+    elif direction == "long" and align_dir < 0 and align_score >= 50:
+        confidence = max(15, confidence - 12)
+        rationale_parts.append("Старшие ТФ согласованы вниз — лонг против тренда.")
+    elif direction == "short" and align_dir < 0 and align_score >= 50:
+        confidence = min(90, confidence + 10)
+        rationale_parts.append("Старшие ТФ согласованы вниз.")
+    elif direction == "short" and align_dir > 0 and align_score >= 50:
+        confidence = max(15, confidence - 12)
+        rationale_parts.append("Старшие ТФ согласованы вверх — шорт против тренда.")
+
+    # Composite sentiment — extreme readings nudge confidence
+    sentiment = (extra or {}).get("sentiment") or {}
+    sent_score = float(sentiment.get("score", 50) or 50)
+    if direction == "long" and sent_score <= 25:
+        confidence = max(15, confidence - 5)
+        rationale_parts.append("Экстремальный медвежий sentiment ослабляет лонг.")
+    elif direction == "short" and sent_score >= 75:
+        confidence = max(15, confidence - 5)
+        rationale_parts.append("Экстремальный бычий sentiment ослабляет шорт.")
+
+    # Walk-forward backtest realism check
+    strategy = (extra or {}).get("strategy_stats") or {}
+    pf = float(strategy.get("profit_factor", 0) or 0)
+    total_trades = int(strategy.get("total_trades", 0) or 0)
+    if direction != "flat" and total_trades >= 5 and pf < 0.7:
+        confidence = max(15, confidence - 8)
+        rationale_parts.append(
+            f"Историческая стратегия слабо работала (PF {pf}, сделок {total_trades})."
+        )
 
     indicators_summary = {
         "rsi": f"{rsi_v:.1f} ({summary['rsi_state']})",

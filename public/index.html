@@ -130,6 +130,44 @@
             <ul class="patterns-list" id="patterns-list"></ul>
           </div>
 
+          <div class="card vp-card" id="vp-card" hidden>
+            <h3>Volume profile <span class="muted-inline">POC · VAH · VAL</span></h3>
+            <div class="kv" id="vp-kv"></div>
+            <div class="vp-bars" id="vp-bars"></div>
+          </div>
+
+          <div class="card flow-card" id="flow-card" hidden>
+            <h3>Order flow (CVD) <span class="muted-inline">приближение из OHLCV</span></h3>
+            <div class="kv" id="flow-kv"></div>
+            <p class="muted" id="flow-note"></p>
+          </div>
+
+          <div class="card alignment-card" id="alignment-card" hidden>
+            <h3>Multi-TF alignment <span class="muted-inline">согласованность ТФ</span></h3>
+            <div class="alignment-score">
+              <div class="alignment-num" id="alignment-num">—</div>
+              <div class="alignment-label" id="alignment-label">—</div>
+            </div>
+            <div class="alignment-bar"><div class="alignment-fill" id="alignment-fill"></div></div>
+            <ul class="alignment-list" id="alignment-list"></ul>
+          </div>
+
+          <div class="card sentiment-card" id="sentiment-card" hidden>
+            <h3>Sentiment composite <span class="muted-inline">F&amp;G + новости + моментум</span></h3>
+            <div class="sentiment-score">
+              <div class="sentiment-num" id="sentiment-num">—</div>
+              <div class="sentiment-label" id="sentiment-label">—</div>
+            </div>
+            <div class="sentiment-bar"><div class="sentiment-fill" id="sentiment-fill"></div></div>
+            <div class="kv" id="sentiment-kv"></div>
+          </div>
+
+          <div class="card strategy-card" id="strategy-card" hidden>
+            <h3>Walk-forward стратегии <span class="muted-inline">rules-based бэктест</span></h3>
+            <div class="kv" id="strategy-kv"></div>
+            <div class="strategy-windows" id="strategy-windows"></div>
+          </div>
+
           <div class="card">
             <h3>Комментарий ИИ</h3>
             <p id="narrative"></p>

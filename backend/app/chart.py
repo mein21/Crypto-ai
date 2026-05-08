@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .indicators import IndicatorBundle
+from .order_flow import OrderFlowBundle
 from .schemas import Signal
 
 
@@ -32,6 +33,8 @@ def render_chart(
     signal: Optional[Signal] = None,
     bars: int = 150,
     patterns: Optional[list[dict]] = None,
+    volume_profile: Optional[dict] = None,
+    order_flow: Optional[OrderFlowBundle] = None,
 ) -> bytes:
     df = ind.df.tail(bars).copy()
     df.index = pd.to_datetime(df.index).tz_convert(None)
@@ -46,6 +49,12 @@ def render_chart(
     macd_line = ind.macd["macd"].tail(bars)
     macd_sig = ind.macd["signal"].tail(bars)
     macd_hist = ind.macd["hist"].tail(bars)
+
+    cvd_panel: Optional[int] = None
+    cvd_series: Optional[pd.Series] = None
+    if order_flow is not None and order_flow.cvd is not None:
+        cvd_series = order_flow.cvd.tail(bars).astype(float)
+        cvd_panel = 4
 
     addplots = [
         mpf.make_addplot(ema_fast.values, color="#2962ff", width=1.2, panel=0),
@@ -64,6 +73,17 @@ def render_chart(
             alpha=0.6,
         ),
     ]
+
+    if cvd_series is not None and cvd_panel is not None:
+        addplots.append(
+            mpf.make_addplot(
+                cvd_series.values,
+                color="#26c6da",
+                width=1.0,
+                panel=cvd_panel,
+                ylabel="CVD",
+            )
+        )
 
     # Pattern marker overlays (one scatter per bias). mplfinance scatter
     # addplots require numeric arrays — use NaN for gaps, not Python None.
@@ -152,14 +172,20 @@ def render_chart(
         rc={"axes.labelcolor": "#ddd", "xtick.color": "#aaa", "ytick.color": "#aaa", "axes.edgecolor": "#444"},
     )
 
+    panel_ratios = (6, 1.6, 2, 2)
+    figsize = (13, 9)
+    if cvd_panel is not None:
+        panel_ratios = (6, 1.6, 2, 2, 1.6)
+        figsize = (13, 10)
+
     fig, axes = mpf.plot(
         df,
         type="candle",
         style=style,
         addplot=addplots,
         volume=True,
-        panel_ratios=(6, 1.6, 2, 2),
-        figsize=(13, 9),
+        panel_ratios=panel_ratios,
+        figsize=figsize,
         returnfig=True,
         tight_layout=True,
         xrotation=15,
@@ -296,6 +322,49 @@ def render_chart(
         ax_rsi.axhline(70, color="#ef5350", linewidth=0.7, linestyle="--", alpha=0.6)
         ax_rsi.axhline(30, color="#26a69a", linewidth=0.7, linestyle="--", alpha=0.6)
         ax_rsi.set_ylim(0, 100)
+
+    # Volume profile overlay — POC / VAH / VAL on the right edge of main panel.
+    if volume_profile:
+        try:
+            poc = float(volume_profile["poc"])
+            vah = float(volume_profile["vah"])
+            val = float(volume_profile["val"])
+            ax_main.axhline(poc, color="#fdd835", linewidth=1.4, linestyle="-", alpha=0.85)
+            ax_main.axhline(vah, color="#fdd835", linewidth=0.9, linestyle=":", alpha=0.65)
+            ax_main.axhline(val, color="#fdd835", linewidth=0.9, linestyle=":", alpha=0.65)
+            x_label = len(df) - 1
+            ax_main.text(
+                x_label,
+                poc,
+                f" POC {_format_price(poc)}",
+                color="#fdd835",
+                fontsize=8,
+                fontweight="bold",
+                va="center",
+                ha="left",
+            )
+            ax_main.text(
+                x_label,
+                vah,
+                f" VAH {_format_price(vah)}",
+                color="#fdd835",
+                fontsize=7,
+                va="center",
+                ha="left",
+                alpha=0.85,
+            )
+            ax_main.text(
+                x_label,
+                val,
+                f" VAL {_format_price(val)}",
+                color="#fdd835",
+                fontsize=7,
+                va="center",
+                ha="left",
+                alpha=0.85,
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=110, facecolor="#0e1117", bbox_inches="tight")
