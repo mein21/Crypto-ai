@@ -132,8 +132,6 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
 @app.post("/best-deal", response_model=BestDealResponse)
 def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
     """Scan all coins on the given timeframe and return the best trading opportunity."""
-    from .data import SYMBOL_MAP
-
     items: list[BestDealItem] = []
     for coin in SYMBOL_MAP:
         try:
@@ -149,7 +147,7 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
                     coin=coin,
                     timeframe=req.timeframe,
                     direction=sig.direction,
-                    confidence=confidence,
+                    confidence=sig.confidence,
                     entry=sig.entry,
                     stop_loss=sig.stop_loss,
                     take_profit_1=sig.take_profit_1,
