@@ -97,7 +97,10 @@ def format_deal_message(deal: dict) -> str:
 
 MIN_CONFIDENCE = 75
 MIN_RR1 = 1.2
-STRONG_TRENDS = {"bullish", "strong bullish", "bearish", "strong bearish"}
+STRONG_TRENDS = {
+    "bullish", "strong bullish", "bearish", "strong bearish",
+    "восходящий", "нисходящий",
+}
 
 
 def is_high_quality_deal(deal: dict) -> bool:
@@ -119,6 +122,8 @@ def is_high_quality_deal(deal: dict) -> bool:
 
     trend = (deal.get("trend") or "").lower()
     if trend and trend not in STRONG_TRENDS:
+        if trend != "боковой":
+            return False
         return False
 
     return True

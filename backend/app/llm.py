@@ -297,6 +297,9 @@ def _rules_based_fallback(
     bear_score = sum(p["strength"] for p in fresh if p.get("bias") == "bearish")
     indecision = any(p.get("kind") == "indecision" for p in fresh)
 
+    bb_lower = float(summary["bb_lower"])
+    bb_upper = float(summary["bb_upper"])
+
     bullish = trend == "восходящий" and macd_state in {"бычий", "нейтрально"} and rsi_v < 70
     bearish = trend == "нисходящий" and macd_state in {"медвежий", "нейтрально"} and rsi_v > 30
 
@@ -319,21 +322,45 @@ def _rules_based_fallback(
     else:
         rationale_parts.append("Нет согласованных сигналов — ждём подтверждения от уровней.")
 
+    # --- Confidence boosters (multi-factor agreement) -------------------------
+    if direction == "long":
+        if macd_state == "бычий":
+            confidence += 5
+            rationale_parts.append("MACD подтверждает бычий сигнал.")
+        if rsi_v < 45:
+            confidence += 5
+            rationale_parts.append("RSI в зоне роста (ниже 45).")
+        if close <= bb_lower + (bb_upper - bb_lower) * 0.25:
+            confidence += 5
+            rationale_parts.append("Цена у нижней Боллинджера — потенциал отскока.")
+    elif direction == "short":
+        if macd_state == "медвежий":
+            confidence += 5
+            rationale_parts.append("MACD подтверждает медвежий сигнал.")
+        if rsi_v > 55:
+            confidence += 5
+            rationale_parts.append("RSI в зоне снижения (выше 55).")
+        if close >= bb_lower + (bb_upper - bb_lower) * 0.75:
+            confidence += 5
+            rationale_parts.append("Цена у верхней Боллинджера — потенциал отката.")
+
     # Pattern adjustment
     if direction == "long" and bull_score >= 3:
-        confidence = min(80, confidence + 12)
+        confidence += 12
         rationale_parts.append("Свежие бычьи паттерны подтверждают идею.")
     elif direction == "long" and bear_score >= 3:
         confidence = max(20, confidence - 15)
         rationale_parts.append("Свежие медвежьи паттерны ослабляют идею лонга.")
     elif direction == "short" and bear_score >= 3:
-        confidence = min(80, confidence + 12)
+        confidence += 12
         rationale_parts.append("Свежие медвежьи паттерны подтверждают идею.")
     elif direction == "short" and bull_score >= 3:
         confidence = max(20, confidence - 15)
         rationale_parts.append("Свежие бычьи паттерны ослабляют идею шорта.")
     if indecision and direction != "flat":
         confidence = max(20, confidence - 5)
+
+    confidence = min(90, confidence)
 
     indicators_summary = {
         "rsi": f"{rsi_v:.1f} ({summary['rsi_state']})",
