@@ -11,6 +11,14 @@ log = logging.getLogger("crypto-ai.telegram")
 
 TELEGRAM_API = "https://api.telegram.org"
 
+HOLDING_PERIOD = {
+    "15m": "скальп — до нескольких часов",
+    "1h": "интрадей — до 1 дня",
+    "4h": "свинг — 1–3 дня",
+    "1d": "позиция — 1–7 дней",
+    "1w": "долгосрочная — 1–4 недели",
+}
+
 
 def _get_config() -> tuple[str, str] | None:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
@@ -58,10 +66,13 @@ def format_deal_message(deal: dict) -> str:
     price = deal.get("last_price")
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+    holding = HOLDING_PERIOD.get(tf, "—")
+
     lines = [
         f"🏆 *Сигнал: {coin}/USDT · {tf}*",
         f"",
         f"{dir_emoji} · Уверенность: *{confidence}%*",
+        f"⏳ Удержание: {holding}",
         f"",
         f"📊 *Параметры сделки:*",
         f"  Цена: `{_fmt_price(price)}`",

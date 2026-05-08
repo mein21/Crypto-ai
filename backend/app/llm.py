@@ -399,3 +399,15 @@ def analyze(
     fallback = _rules_based_fallback(coin, timeframe, summary, extra_context)
     fallback.signal = _enforce_rr_targets(fallback.signal)
     return fallback
+
+
+def analyze_fast(
+    coin: str,
+    timeframe: str,
+    summary: dict,
+    extra_context: dict | None = None,
+) -> Analysis:
+    """Rules-based analysis only (no LLM). Used by cron to fit Vercel 10s timeout."""
+    fallback = _rules_based_fallback(coin, timeframe, summary, extra_context)
+    fallback.signal = _enforce_rr_targets(fallback.signal)
+    return fallback

@@ -20,7 +20,7 @@ from .context import (
 )
 from .data import SYMBOL_MAP, fetch_ohlcv
 from .indicators import compute_all
-from .llm import analyze
+from .llm import analyze, analyze_fast
 from .news_enrich import enrich_news
 from .onchain import fetch_onchain
 from .patterns import detect_patterns
@@ -231,41 +231,55 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
     return BestDealResponse(best=best, scanned=len(items), all_deals=items[:5], full_analysis=full_analysis)
 
 
+# Top coins for fast cron scan (fit Vercel Hobby 10s timeout)
+CRON_COINS = ["BTC", "ETH", "SOL", "BNB", "XRP"]
+CRON_TIMEFRAMES = ["4h", "1d"]
+
+
 @app.api_route("/notify-check", methods=["GET", "POST"])
 def notify_check_endpoint(req: BestDealRequest | None = None) -> dict:
-    """Scan all coins and send Telegram notification if a high-quality deal is found."""
-    timeframe = req.timeframe if req else "1h"
+    """Scan coins and send Telegram notifications for high-quality deals.
+
+    GET  (cron): fast rules-based scan of top 5 coins on 4h+1d timeframes.
+    POST (manual): full LLM analysis of all 10 coins on the selected timeframe.
+    """
+    is_cron = req is None
+    coins = CRON_COINS if is_cron else list(SYMBOL_MAP.keys())
+    timeframes = CRON_TIMEFRAMES if is_cron else [req.timeframe]
+    analyzer = analyze_fast if is_cron else analyze
+
     items: list[BestDealItem] = []
-    for coin in SYMBOL_MAP:
-        try:
-            df = fetch_ohlcv(coin, timeframe)
-            if len(df) < 60:
-                continue
-            ind = compute_all(df)
-            summary = ind.summary()
-            result = analyze(coin, timeframe, summary)
-            sig = result.signal
-            items.append(
-                BestDealItem(
-                    coin=coin, timeframe=timeframe,
-                    direction=sig.direction, confidence=sig.confidence,
-                    entry=sig.entry, stop_loss=sig.stop_loss,
-                    take_profit_1=sig.take_profit_1, take_profit_2=sig.take_profit_2,
-                    rationale=sig.rationale, last_price=float(summary["close"]),
-                    trend=result.trend, rsi=round(float(summary["rsi"]), 1),
-                    market_regime=result.market_regime,
+    for tf in timeframes:
+        for coin in coins:
+            try:
+                df = fetch_ohlcv(coin, tf)
+                if len(df) < 60:
+                    continue
+                ind = compute_all(df)
+                summary = ind.summary()
+                result = analyzer(coin, tf, summary)
+                sig = result.signal
+                items.append(
+                    BestDealItem(
+                        coin=coin, timeframe=tf,
+                        direction=sig.direction, confidence=sig.confidence,
+                        entry=sig.entry, stop_loss=sig.stop_loss,
+                        take_profit_1=sig.take_profit_1, take_profit_2=sig.take_profit_2,
+                        rationale=sig.rationale, last_price=float(summary["close"]),
+                        trend=result.trend, rsi=round(float(summary["rsi"]), 1),
+                        market_regime=result.market_regime,
+                    )
                 )
-            )
-        except Exception as e:  # noqa: BLE001
-            log.warning("Notify-check scan failed for %s: %s", coin, e)
-            continue
+            except Exception as e:  # noqa: BLE001
+                log.warning("Notify-check scan failed for %s/%s: %s", coin, tf, e)
+                continue
 
     items.sort(key=lambda x: (x.direction != "flat", x.confidence), reverse=True)
     notified = []
     for item in items:
         d = item.model_dump()
         if notify_if_worthy(d):
-            notified.append(item.coin)
+            notified.append(f"{item.coin}/{item.timeframe}")
 
     return {
         "scanned": len(items),
