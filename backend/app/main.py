@@ -214,6 +214,7 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
                     direction=sig.direction,
                     confidence=sig.confidence,
                     entry=sig.entry,
+                    entry_type=sig.entry_type,
                     stop_loss=sig.stop_loss,
                     take_profit_1=sig.take_profit_1,
                     take_profit_2=sig.take_profit_2,

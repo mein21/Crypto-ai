@@ -791,12 +791,13 @@
       limit: { label: "Лимит", title: "Limit — пассивный ордер у уровня (long: ниже close, short: выше close)" },
       stop: { label: "По пробою", title: "Stop — войти только при пробое уровня (long: выше close, short: ниже close)" },
     };
+    const isLimit = entryType === "limit";
     const rows = [
       ["Направление", dirText, sig.direction || "flat", null],
       ["Вход", fmtPrice(sig.entry), "warn", { kind: "entry-type", type: entryType }],
       ["Stop-loss", fmtPrice(sig.stop_loss), "short", null],
       ["Take-profit 1", `${fmtPrice(sig.take_profit_1)}${rrText(sig.take_profit_1)}`, "long", null],
-      ["Take-profit 2", `${fmtPrice(sig.take_profit_2)}${rrText(sig.take_profit_2)}`, "long", null],
+      ...(!isLimit ? [["Take-profit 2", `${fmtPrice(sig.take_profit_2)}${rrText(sig.take_profit_2)}`, "long", null]] : []),
       ["Уверенность", `${sig.confidence ?? 0}%`, "", null],
     ];
     rows.forEach(([k, v, cls, extra]) => {
@@ -820,7 +821,8 @@
     });
 
     // Risk management: position size calculation
-    const posInfo = calcPositionSize(sig.entry, sig.stop_loss, sig.take_profit_1, sig.take_profit_2);
+    const tp2ForCalc = isLimit ? null : sig.take_profit_2;
+    const posInfo = calcPositionSize(sig.entry, sig.stop_loss, sig.take_profit_1, tp2ForCalc);
     if (posInfo && sig.direction && sig.direction !== "flat") {
       const riskDiv = document.createElement("div");
       riskDiv.className = "kv risk-info";
@@ -984,6 +986,8 @@
 
     const main = $("best-deal-main");
     main.innerHTML = "";
+    const bdEntryType = best.entry_type || "market";
+    const bdIsLimit = bdEntryType === "limit";
     const rows = [
       ["Монета", `${best.coin}/USDT`, ""],
       ["Цена", fmtPrice(best.last_price), ""],
@@ -992,7 +996,7 @@
       ["Вход", fmtPrice(best.entry), "warn"],
       ["Stop-loss", fmtPrice(best.stop_loss), "short"],
       ["Take-profit 1", fmtPrice(best.take_profit_1), "long"],
-      ["Take-profit 2", fmtPrice(best.take_profit_2), "long"],
+      ...(!bdIsLimit ? [["Take-profit 2", fmtPrice(best.take_profit_2), "long"]] : []),
       ["RSI", best.rsi.toFixed(1), ""],
       ["Уверенность", `${best.confidence}%`, ""],
     ];
@@ -1008,7 +1012,8 @@
     });
 
     // Risk management for best deal
-    const bdPosInfo = calcPositionSize(best.entry, best.stop_loss, best.take_profit_1, best.take_profit_2);
+    const bdTp2ForCalc = bdIsLimit ? null : best.take_profit_2;
+    const bdPosInfo = calcPositionSize(best.entry, best.stop_loss, best.take_profit_1, bdTp2ForCalc);
     const oldBdRisk = main.parentElement.querySelector(".risk-info");
     if (oldBdRisk) oldBdRisk.remove();
     if (bdPosInfo && best.direction && best.direction !== "flat") {

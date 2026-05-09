@@ -245,6 +245,7 @@ class BestDealItem(BaseModel):
     direction: Literal["long", "short", "flat"] = "flat"
     confidence: int = Field(0, ge=0, le=100)
     entry: Optional[float] = None
+    entry_type: Literal["market", "limit", "stop"] = "market"
     stop_loss: Optional[float] = None
     take_profit_1: Optional[float] = None
     take_profit_2: Optional[float] = None
