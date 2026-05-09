@@ -1893,15 +1893,28 @@ h1 {
   gap: 8px;
 }
 .watch-item {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 10px 14px;
   background: var(--bg-elevated);
   border-radius: var(--radius-sm);
   border-left: 3px solid var(--accent);
   font-size: 13px;
+}
+.watch-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 1;
+  min-width: 0;
+}
+.watch-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .watch-item.long {
   border-left-color: var(--green, #4caf50);
@@ -1959,9 +1972,9 @@ h1 {
   cursor: wait;
 }
 .watch-status {
-  grid-column: 1 / -1;
+  width: 100%;
   display: flex;
-  gap: 12px;
+  gap: 8px 12px;
   flex-wrap: wrap;
   padding: 6px 10px;
   margin-top: 4px;

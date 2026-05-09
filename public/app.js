@@ -1310,12 +1310,16 @@
       item.className = "watch-item " + (w.direction || "flat");
       const dirLabel = w.direction === "long" ? "\u041B\u041E\u041D\u0413" : w.direction === "short" ? "\u0428\u041E\u0420\u0422" : "\u2014";
       item.innerHTML = `
-        <span class="watch-coin">${w.coin}/USDT \u00b7 ${w.timeframe} \u00b7 ${dirLabel}</span>
-        <span class="watch-price">\u0412\u0445\u043E\u0434: ${fmtPrice(w.entry)}</span>
-        <span class="watch-target sl">SL: ${fmtPrice(w.stop_loss)}</span>
-        <span class="watch-target tp">TP1: ${fmtPrice(w.take_profit_1)}${w.tp1_hit ? " \u2705" : ""}</span>
-        <button class="watch-check" data-id="${w.id}" title="\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C">\uD83D\uDD0D</button>
-        <button class="watch-remove" data-id="${w.id}">\u2716</button>
+        <div class="watch-info">
+          <span class="watch-coin">${w.coin}/USDT \u00b7 ${w.timeframe} \u00b7 ${dirLabel}</span>
+          <span class="watch-price">\u0412\u0445\u043E\u0434: ${fmtPrice(w.entry)}</span>
+          <span class="watch-target sl">SL: ${fmtPrice(w.stop_loss)}</span>
+          <span class="watch-target tp">TP1: ${fmtPrice(w.take_profit_1)}${w.tp1_hit ? " \u2705" : ""}</span>
+        </div>
+        <div class="watch-actions">
+          <button class="watch-check" data-id="${w.id}" title="\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C">\uD83D\uDD0D</button>
+          <button class="watch-remove" data-id="${w.id}">\u2716</button>
+        </div>
       `;
       item.querySelector(".watch-check").addEventListener("click", () => checkWatch(w));
       item.querySelector(".watch-remove").addEventListener("click", () => removeWatch(w.id));
