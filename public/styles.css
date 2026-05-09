@@ -258,6 +258,66 @@ body::after {
   gap: 10px;
   animation: fade-up 0.25s var(--easing) both;
 }
+
+/* Mobile: balance widget + edit form */
+@media (max-width: 480px) {
+  .top-bar {
+    gap: 8px;
+    right: max(10px, env(safe-area-inset-right));
+  }
+  .balance-display {
+    padding: 6px 10px;
+    gap: 5px;
+  }
+  .balance-label {
+    font-size: 9px;
+  }
+  .balance-value {
+    font-size: 11px;
+  }
+  .balance-edit {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    min-width: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding: 20px 20px max(20px, env(safe-area-inset-bottom));
+    animation: slide-up 0.3s var(--easing) both;
+  }
+  .balance-input,
+  .risk-input {
+    font-size: 16px;
+    padding: 12px 14px;
+  }
+  .balance-save-btn,
+  .balance-cancel-btn {
+    padding: 12px 0;
+    font-size: 14px;
+  }
+}
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(100%); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.balance-overlay {
+  display: none;
+}
+@media (max-width: 480px) {
+  .balance-overlay.active {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 49;
+    animation: fade-in 0.2s var(--easing) both;
+  }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 .balance-input,
 .risk-input {
   width: 100%;
@@ -1565,6 +1625,12 @@ h1 {
 
 /* Very small phones (≤380px, e.g. iPhone SE 1st gen) */
 @media (max-width: 380px) {
+  .balance-label {
+    display: none;
+  }
+  .balance-value {
+    font-size: 10px;
+  }
   .app {
     padding-left: max(14px, env(safe-area-inset-left));
     padding-right: max(14px, env(safe-area-inset-right));

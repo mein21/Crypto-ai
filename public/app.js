@@ -50,7 +50,7 @@
   function renderBalanceDisplay() {
     const el = $("balance-value");
     if (balance == null) {
-      el.textContent = "— USDT";
+      el.textContent = "Ввести";
     } else {
       el.textContent = balance.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) + " USDT";
     }
@@ -59,6 +59,7 @@
   function openBalanceEdit() {
     $("balance-display").hidden = true;
     $("balance-edit").hidden = false;
+    $("balance-overlay").classList.add("active");
     const inp = $("balance-input");
     inp.value = balance != null ? balance : "";
     $("risk-input").value = riskPercent;
@@ -68,6 +69,7 @@
   function closeBalanceEdit() {
     $("balance-edit").hidden = true;
     $("balance-display").hidden = false;
+    $("balance-overlay").classList.remove("active");
   }
 
   function commitBalanceEdit() {
@@ -1435,6 +1437,7 @@
         closeBalanceEdit();
       }
     });
+    $("balance-overlay").addEventListener("click", closeBalanceEdit);
   }
 
   function init() {
