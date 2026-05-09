@@ -85,28 +85,30 @@
     if (entry == null || stopLoss == null || entry === stopLoss) return null;
     const riskAmount = balance * riskPercent / 100;
     const slDistance = Math.abs(entry - stopLoss);
-    const positionSizeCoins = riskAmount / slDistance;
-    const positionValueUsdt = positionSizeCoins * entry;
-    return { riskAmount, positionSizeCoins, positionValueUsdt, slDistance };
+    let positionSizeCoins = riskAmount / slDistance;
+    let positionValueUsdt = positionSizeCoins * entry;
+    let capped = false;
+    if (positionValueUsdt > balance) {
+      positionSizeCoins = balance / entry;
+      positionValueUsdt = balance;
+      capped = true;
+    }
+    const actualRisk = positionSizeCoins * slDistance;
+    return { riskAmount: capped ? actualRisk : riskAmount, positionSizeCoins, positionValueUsdt, slDistance, capped };
   }
 
   function updateBalanceOnHit(watch, hitType, hitPrice) {
     if (balance == null) return;
-    const entry = watch.entry;
-    const stopLoss = watch.stop_loss;
-    if (entry == null || stopLoss == null || entry === stopLoss) return;
-    const riskAmount = balance * riskPercent / 100;
-    const slDistance = Math.abs(entry - stopLoss);
-    const positionSizeCoins = riskAmount / slDistance;
-    const isLong = watch.direction === "long";
+    const posInfo = calcPositionSize(watch.entry, watch.stop_loss);
+    if (!posInfo) return;
 
     if (hitType === "SL") {
-      saveBalance(Math.max(0, balance - riskAmount));
+      saveBalance(Math.max(0, balance - posInfo.riskAmount));
     } else if (hitType === "TP1" && watch.take_profit_1 != null) {
-      const profit = positionSizeCoins * Math.abs(watch.take_profit_1 - entry);
+      const profit = posInfo.positionSizeCoins * Math.abs(watch.take_profit_1 - watch.entry);
       saveBalance(balance + profit);
     } else if (hitType === "TP2" && watch.take_profit_2 != null) {
-      const profit = positionSizeCoins * Math.abs(watch.take_profit_2 - entry);
+      const profit = posInfo.positionSizeCoins * Math.abs(watch.take_profit_2 - watch.entry);
       saveBalance(balance + profit);
     }
   }
@@ -817,7 +819,7 @@
       const riskDiv = document.createElement("div");
       riskDiv.className = "kv risk-info";
       const riskRows = [
-        ["Риск на сделку", `${fmtPrice(posInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
+        ["Риск на сделку", `${fmtPrice(posInfo.riskAmount)} USDT (${posInfo.capped ? "ограничен" : riskPercent + "%"})`, "short"],
         ["Размер позиции", `${posInfo.positionSizeCoins.toFixed(6)} ${analysis.coin}`, ""],
         ["Стоимость позиции", `${fmtPrice(posInfo.positionValueUsdt)} USDT`, "warn"],
       ];
@@ -839,6 +841,12 @@
         riskDiv.appendChild(kEl);
         riskDiv.appendChild(vEl);
       });
+      if (posInfo.capped) {
+        const warn = document.createElement("div");
+        warn.className = "risk-cap-warning";
+        warn.textContent = "Позиция ограничена балансом (без плеча)";
+        riskDiv.appendChild(warn);
+      }
       idea.parentElement.appendChild(riskDiv);
     }
 
@@ -996,7 +1004,7 @@
       const riskDiv = document.createElement("div");
       riskDiv.className = "kv risk-info";
       const riskRows = [
-        ["Риск на сделку", `${fmtPrice(bdPosInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
+        ["Риск на сделку", `${fmtPrice(bdPosInfo.riskAmount)} USDT (${bdPosInfo.capped ? "ограничен" : riskPercent + "%"})`, "short"],
         ["Размер позиции", `${bdPosInfo.positionSizeCoins.toFixed(6)} ${best.coin}`, ""],
         ["Стоимость позиции", `${fmtPrice(bdPosInfo.positionValueUsdt)} USDT`, "warn"],
       ];
@@ -1018,6 +1026,12 @@
         riskDiv.appendChild(kEl);
         riskDiv.appendChild(vEl);
       });
+      if (bdPosInfo.capped) {
+        const warn = document.createElement("div");
+        warn.className = "risk-cap-warning";
+        warn.textContent = "Позиция ограничена балансом (без плеча)";
+        riskDiv.appendChild(warn);
+      }
       main.parentElement.appendChild(riskDiv);
     }
 
