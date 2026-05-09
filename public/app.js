@@ -18,6 +18,97 @@
   let pollTimer = null;
   const POLL_INTERVAL = 10000;
 
+  // --- Balance & Risk management ---
+  let balance = loadBalance();
+  let riskPercent = loadRiskPercent();
+
+  function loadBalance() {
+    try {
+      const v = parseFloat(localStorage.getItem("crypto_balance"));
+      return isNaN(v) ? null : v;
+    } catch { return null; }
+  }
+
+  function saveBalance(val) {
+    balance = val;
+    try { localStorage.setItem("crypto_balance", String(val)); } catch {}
+    renderBalanceDisplay();
+  }
+
+  function loadRiskPercent() {
+    try {
+      const v = parseFloat(localStorage.getItem("crypto_risk_pct"));
+      return isNaN(v) || v <= 0 ? 1 : v;
+    } catch { return 1; }
+  }
+
+  function saveRiskPercent(val) {
+    riskPercent = val;
+    try { localStorage.setItem("crypto_risk_pct", String(val)); } catch {}
+  }
+
+  function renderBalanceDisplay() {
+    const el = $("balance-value");
+    if (balance == null) {
+      el.textContent = "— USDT";
+    } else {
+      el.textContent = balance.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) + " USDT";
+    }
+  }
+
+  function openBalanceEdit() {
+    $("balance-display").hidden = true;
+    $("balance-edit").hidden = false;
+    const inp = $("balance-input");
+    inp.value = balance != null ? balance : "";
+    $("risk-input").value = riskPercent;
+    inp.focus();
+  }
+
+  function closeBalanceEdit() {
+    $("balance-edit").hidden = true;
+    $("balance-display").hidden = false;
+  }
+
+  function commitBalanceEdit() {
+    const val = parseFloat($("balance-input").value);
+    const risk = parseFloat($("risk-input").value);
+    if (!isNaN(val) && val >= 0) saveBalance(val);
+    if (!isNaN(risk) && risk > 0 && risk <= 100) saveRiskPercent(risk);
+    closeBalanceEdit();
+  }
+
+  function calcPositionSize(entry, stopLoss) {
+    if (balance == null || balance <= 0) return null;
+    if (entry == null || stopLoss == null || entry === stopLoss) return null;
+    const riskAmount = balance * riskPercent / 100;
+    const slDistance = Math.abs(entry - stopLoss);
+    const positionSizeCoins = riskAmount / slDistance;
+    const positionValueUsdt = positionSizeCoins * entry;
+    return { riskAmount, positionSizeCoins, positionValueUsdt, slDistance };
+  }
+
+  function updateBalanceOnHit(watch, hitType, hitPrice) {
+    if (balance == null) return;
+    const entry = watch.entry;
+    const stopLoss = watch.stop_loss;
+    if (entry == null || stopLoss == null || entry === stopLoss) return;
+    const riskAmount = balance * riskPercent / 100;
+    const slDistance = Math.abs(entry - stopLoss);
+    const positionSizeCoins = riskAmount / slDistance;
+    const isLong = watch.direction === "long";
+
+    if (hitType === "SL") {
+      saveBalance(Math.max(0, balance - riskAmount));
+    } else if (hitType === "TP1" && watch.take_profit_1 != null) {
+      const profit = positionSizeCoins * Math.abs(watch.take_profit_1 - entry);
+      saveBalance(balance + profit);
+    } else if (hitType === "TP2" && watch.take_profit_2 != null) {
+      const profit = positionSizeCoins * Math.abs(watch.take_profit_2 - entry);
+      saveBalance(balance + profit);
+    }
+  }
+
   const $ = (id) => document.getElementById(id);
 
   function inferDevApiBase() {
@@ -667,6 +758,8 @@
 
     const idea = $("trade-idea");
     idea.innerHTML = "";
+    const oldRisk = idea.parentElement.querySelector(".risk-info");
+    if (oldRisk) oldRisk.remove();
     const rr = (target) => {
       if (
         sig.entry == null ||
@@ -716,8 +809,41 @@
       idea.appendChild(vEl);
     });
 
+    // Risk management: position size calculation
+    const posInfo = calcPositionSize(sig.entry, sig.stop_loss);
+    if (posInfo && sig.direction && sig.direction !== "flat") {
+      const riskDiv = document.createElement("div");
+      riskDiv.className = "kv risk-info";
+      const riskRows = [
+        ["Риск на сделку", `${fmtPrice(posInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
+        ["Размер позиции", `${posInfo.positionSizeCoins.toFixed(6)} ${analysis.coin}`, ""],
+        ["Стоимость позиции", `${fmtPrice(posInfo.positionValueUsdt)} USDT`, "warn"],
+      ];
+      if (sig.take_profit_1 != null) {
+        const tp1Profit = posInfo.positionSizeCoins * Math.abs(sig.take_profit_1 - sig.entry);
+        riskRows.push(["Профит при TP1", `+${fmtPrice(tp1Profit)} USDT`, "long"]);
+      }
+      if (sig.take_profit_2 != null) {
+        const tp2Profit = posInfo.positionSizeCoins * Math.abs(sig.take_profit_2 - sig.entry);
+        riskRows.push(["Профит при TP2", `+${fmtPrice(tp2Profit)} USDT`, "long"]);
+      }
+      riskRows.forEach(([k, v, cls]) => {
+        const kEl = document.createElement("div");
+        kEl.className = "k";
+        kEl.textContent = k;
+        const vEl = document.createElement("div");
+        vEl.className = "v " + (cls || "");
+        vEl.textContent = v;
+        riskDiv.appendChild(kEl);
+        riskDiv.appendChild(vEl);
+      });
+      idea.parentElement.appendChild(riskDiv);
+    }
+
     $("rationale").textContent = sig.rationale || "";
 
+    const existingRiskInfo = idea.parentElement.querySelector(".risk-info");
+    // risk-info already appended above, no duplicates needed
     const existingTrackBtn = idea.parentElement.querySelector(".track-btn");
     if (existingTrackBtn) existingTrackBtn.remove();
     if (sig.direction && sig.direction !== "flat" && sig.entry != null && sig.stop_loss != null) {
@@ -859,6 +985,39 @@
       main.appendChild(kEl);
       main.appendChild(vEl);
     });
+
+    // Risk management for best deal
+    const bdPosInfo = calcPositionSize(best.entry, best.stop_loss);
+    const oldBdRisk = main.parentElement.querySelector(".risk-info");
+    if (oldBdRisk) oldBdRisk.remove();
+    if (bdPosInfo && best.direction && best.direction !== "flat") {
+      const riskDiv = document.createElement("div");
+      riskDiv.className = "kv risk-info";
+      const riskRows = [
+        ["Риск на сделку", `${fmtPrice(bdPosInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
+        ["Размер позиции", `${bdPosInfo.positionSizeCoins.toFixed(6)} ${best.coin}`, ""],
+        ["Стоимость позиции", `${fmtPrice(bdPosInfo.positionValueUsdt)} USDT`, "warn"],
+      ];
+      if (best.take_profit_1 != null) {
+        const tp1Profit = bdPosInfo.positionSizeCoins * Math.abs(best.take_profit_1 - best.entry);
+        riskRows.push(["Профит при TP1", `+${fmtPrice(tp1Profit)} USDT`, "long"]);
+      }
+      if (best.take_profit_2 != null) {
+        const tp2Profit = bdPosInfo.positionSizeCoins * Math.abs(best.take_profit_2 - best.entry);
+        riskRows.push(["Профит при TP2", `+${fmtPrice(tp2Profit)} USDT`, "long"]);
+      }
+      riskRows.forEach(([k, v, cls]) => {
+        const kEl = document.createElement("div");
+        kEl.className = "k";
+        kEl.textContent = k;
+        const vEl = document.createElement("div");
+        vEl.className = "v " + (cls || "");
+        vEl.textContent = v;
+        riskDiv.appendChild(kEl);
+        riskDiv.appendChild(vEl);
+      });
+      main.parentElement.appendChild(riskDiv);
+    }
 
     $("best-deal-rationale").textContent = best.rationale || "";
 
@@ -1163,16 +1322,19 @@
     const tp2Hit = watch.take_profit_2 != null && (isLong ? price >= watch.take_profit_2 : price <= watch.take_profit_2);
 
     if (slHit) {
+      updateBalanceOnHit(watch, "SL", price);
       await sendAlert(watch, "SL", price);
       removeWatch(watch.id);
       return;
     }
     if (tp2Hit) {
+      updateBalanceOnHit(watch, "TP2", price);
       await sendAlert(watch, "TP2", price);
       removeWatch(watch.id);
       return;
     }
     if (tp1Hit) {
+      updateBalanceOnHit(watch, "TP1", price);
       await sendAlert(watch, "TP1", price);
       const idx = watches.findIndex((w) => w.id === watch.id);
       if (idx !== -1) {
@@ -1254,8 +1416,30 @@
     });
   }
 
+  function setupBalance() {
+    renderBalanceDisplay();
+    $("balance-display").addEventListener("click", openBalanceEdit);
+    $("balance-save-btn").addEventListener("click", commitBalanceEdit);
+    $("balance-cancel-btn").addEventListener("click", closeBalanceEdit);
+    $("balance-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") commitBalanceEdit();
+      if (e.key === "Escape") closeBalanceEdit();
+    });
+    $("risk-input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") commitBalanceEdit();
+      if (e.key === "Escape") closeBalanceEdit();
+    });
+    document.addEventListener("click", (e) => {
+      const widget = $("balance-widget");
+      if (!widget.contains(e.target) && !$("balance-edit").hidden) {
+        closeBalanceEdit();
+      }
+    });
+  }
+
   function init() {
     setupThemeToggle();
+    setupBalance();
     buildChips("coin-row", COINS, "coin");
     buildChips("tf-row", TFS, "tf");
     $("analyze-btn").addEventListener("click", analyze);

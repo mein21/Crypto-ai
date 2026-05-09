@@ -193,11 +193,158 @@ body::after {
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-glow); background-clip: padding-box; }
 ::selection { background: var(--accent); color: var(--on-accent); }
 
-/* Floating theme toggle (top-right). Mirrors the crypto-assistant button. */
-.theme-toggle {
+/* Top bar: balance + theme toggle (fixed top-right) */
+.top-bar {
   position: fixed;
-  top: max(16px, env(safe-area-inset-top));
+  top: max(12px, env(safe-area-inset-top));
   right: max(16px, env(safe-area-inset-right));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 50;
+}
+
+/* Balance widget */
+.balance-widget {
+  position: relative;
+}
+.balance-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: var(--bg-surface-strong);
+  border: 1px solid var(--border-strong);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  box-shadow: var(--shadow-button);
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s var(--easing), border-color 0.2s var(--easing);
+  white-space: nowrap;
+}
+.balance-display:hover {
+  transform: translateY(-1px);
+  border-color: var(--border-accent);
+}
+.balance-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.balance-value {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.balance-edit {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 240px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-strong);
+  border: 1px solid var(--border-strong);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: fade-up 0.25s var(--easing) both;
+}
+.balance-input,
+.risk-input {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s var(--easing);
+}
+.balance-input:focus,
+.risk-input:focus {
+  border-color: var(--border-accent);
+}
+.balance-input::-webkit-inner-spin-button,
+.balance-input::-webkit-outer-spin-button,
+.risk-input::-webkit-inner-spin-button,
+.risk-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.balance-input[type="number"],
+.risk-input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+.balance-risk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.balance-risk-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 50px;
+}
+.balance-risk-row .risk-input {
+  flex: 1;
+}
+
+.balance-actions {
+  display: flex;
+  gap: 8px;
+}
+.balance-save-btn,
+.balance-cancel-btn {
+  flex: 1;
+  padding: 7px 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s var(--easing), border-color 0.15s var(--easing);
+}
+.balance-save-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+.balance-save-btn:hover {
+  opacity: 0.85;
+}
+.balance-cancel-btn {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.balance-cancel-btn:hover {
+  border-color: var(--border-accent);
+}
+
+/* Position size row inside trade idea card */
+.risk-info {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.risk-info .k {
+  color: var(--text-muted);
+}
+
+/* Floating theme toggle. Mirrors the crypto-assistant button. */
+.theme-toggle {
   width: 40px;
   height: 40px;
   border-radius: 999px;
@@ -207,7 +354,6 @@ body::after {
   display: grid;
   place-items: center;
   cursor: pointer;
-  z-index: 50;
   box-shadow: var(--shadow-button);
   backdrop-filter: var(--blur-md);
   -webkit-backdrop-filter: var(--blur-md);
