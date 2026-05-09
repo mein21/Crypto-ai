@@ -243,6 +243,21 @@
       tbody.appendChild(tr);
     });
     tbl.appendChild(tbody);
+
+    const mobileList = $("corr-mobile");
+    mobileList.innerHTML = "";
+    corr.pairs.forEach((p) => {
+      const li = document.createElement("li");
+      li.className = "corr-mobile-row";
+      const pct = Math.round(Math.abs(p.value) * 100);
+      li.innerHTML = `
+        <span class="corr-mobile-coin">${p.coin}</span>
+        <span class="corr-mobile-bar"><span class="corr-mobile-fill" style="width:${pct}%;background:${corrColor(p.value)}"></span></span>
+        <span class="corr-mobile-value" style="color:${corrColor(p.value)}">${p.value.toFixed(3)}</span>
+      `;
+      mobileList.appendChild(li);
+    });
+
     $("corr-meta").textContent = `${corr.pairs.length} монет · окно ${corr.window_days} дней · ${corr.n_observations} наблюдений`;
     return true;
   }
