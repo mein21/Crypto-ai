@@ -80,7 +80,9 @@
     closeBalanceEdit();
   }
 
-  function calcPositionSize(entry, stopLoss) {
+  const TAKER_FEE = 0.0005; // Binance Futures taker 0.05%
+
+  function calcPositionSize(entry, stopLoss, tp1, tp2) {
     if (balance == null || balance <= 0) return null;
     if (entry == null || stopLoss == null || entry === stopLoss) return null;
     const riskAmount = balance * riskPercent / 100;
@@ -88,22 +90,32 @@
     const positionSizeCoins = riskAmount / slDistance;
     const positionValueUsdt = positionSizeCoins * entry;
     const leverage = positionValueUsdt > balance ? positionValueUsdt / balance : 1;
-    return { riskAmount, positionSizeCoins, positionValueUsdt, slDistance, leverage };
+    const commissionOpen = positionValueUsdt * TAKER_FEE;
+    const commissionClose = positionValueUsdt * TAKER_FEE;
+    const commissionTotal = commissionOpen + commissionClose;
+    let tp1Profit = null, tp1Net = null, tp2Profit = null, tp2Net = null;
+    if (tp1 != null) {
+      tp1Profit = positionSizeCoins * Math.abs(tp1 - entry);
+      tp1Net = tp1Profit - commissionTotal;
+    }
+    if (tp2 != null) {
+      tp2Profit = positionSizeCoins * Math.abs(tp2 - entry);
+      tp2Net = tp2Profit - commissionTotal;
+    }
+    return { riskAmount, positionSizeCoins, positionValueUsdt, slDistance, leverage, commissionTotal, tp1Profit, tp1Net, tp2Profit, tp2Net };
   }
 
   function updateBalanceOnHit(watch, hitType, hitPrice) {
     if (balance == null) return;
-    const posInfo = calcPositionSize(watch.entry, watch.stop_loss);
+    const posInfo = calcPositionSize(watch.entry, watch.stop_loss, watch.take_profit_1, watch.take_profit_2);
     if (!posInfo) return;
 
     if (hitType === "SL") {
-      saveBalance(Math.max(0, balance - posInfo.riskAmount));
-    } else if (hitType === "TP1" && watch.take_profit_1 != null) {
-      const profit = posInfo.positionSizeCoins * Math.abs(watch.take_profit_1 - watch.entry);
-      saveBalance(balance + profit);
-    } else if (hitType === "TP2" && watch.take_profit_2 != null) {
-      const profit = posInfo.positionSizeCoins * Math.abs(watch.take_profit_2 - watch.entry);
-      saveBalance(balance + profit);
+      saveBalance(Math.max(0, balance - posInfo.riskAmount - posInfo.commissionTotal));
+    } else if (hitType === "TP1" && posInfo.tp1Net != null) {
+      saveBalance(balance + posInfo.tp1Net);
+    } else if (hitType === "TP2" && posInfo.tp2Net != null) {
+      saveBalance(balance + posInfo.tp2Net);
     }
   }
 
@@ -808,7 +820,7 @@
     });
 
     // Risk management: position size calculation
-    const posInfo = calcPositionSize(sig.entry, sig.stop_loss);
+    const posInfo = calcPositionSize(sig.entry, sig.stop_loss, sig.take_profit_1, sig.take_profit_2);
     if (posInfo && sig.direction && sig.direction !== "flat") {
       const riskDiv = document.createElement("div");
       riskDiv.className = "kv risk-info";
@@ -817,14 +829,17 @@
         ["Риск на сделку", `${fmtPrice(posInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
         ["Размер позиции", `${posInfo.positionSizeCoins.toFixed(6)} ${analysis.coin}`, ""],
         ["Стоимость позиции", `${fmtPrice(posInfo.positionValueUsdt)} USDT${leverageLabel}`, "warn"],
+        ["Комиссия (≈)", `${fmtPrice(posInfo.commissionTotal)} USDT`, "short"],
       ];
-      if (sig.take_profit_1 != null) {
-        const tp1Profit = posInfo.positionSizeCoins * Math.abs(sig.take_profit_1 - sig.entry);
-        riskRows.push(["Профит при TP1", `+${fmtPrice(tp1Profit)} USDT`, "long"]);
+      if (posInfo.tp1Profit != null) {
+        const netCls = posInfo.tp1Net > 0 ? "long" : "short";
+        riskRows.push(["Профит при TP1", `+${fmtPrice(posInfo.tp1Profit)} USDT`, "long"]);
+        riskRows.push(["Чистый профит TP1", `${posInfo.tp1Net >= 0 ? "+" : ""}${fmtPrice(posInfo.tp1Net)} USDT`, netCls]);
       }
-      if (sig.take_profit_2 != null) {
-        const tp2Profit = posInfo.positionSizeCoins * Math.abs(sig.take_profit_2 - sig.entry);
-        riskRows.push(["Профит при TP2", `+${fmtPrice(tp2Profit)} USDT`, "long"]);
+      if (posInfo.tp2Profit != null) {
+        const netCls = posInfo.tp2Net > 0 ? "long" : "short";
+        riskRows.push(["Профит при TP2", `+${fmtPrice(posInfo.tp2Profit)} USDT`, "long"]);
+        riskRows.push(["Чистый профит TP2", `${posInfo.tp2Net >= 0 ? "+" : ""}${fmtPrice(posInfo.tp2Net)} USDT`, netCls]);
       }
       riskRows.forEach(([k, v, cls]) => {
         const kEl = document.createElement("div");
@@ -836,6 +851,13 @@
         riskDiv.appendChild(kEl);
         riskDiv.appendChild(vEl);
       });
+      const bestNet = posInfo.tp1Net != null ? posInfo.tp1Net : posInfo.tp2Net;
+      if (bestNet != null && bestNet <= 0) {
+        const warn = document.createElement("div");
+        warn.className = "risk-warn-negative";
+        warn.textContent = "⚠ Комиссия съедает профит. Рекомендуется увеличить баланс или использовать лимитные ордера (комиссия ×2.5 ниже).";
+        riskDiv.appendChild(warn);
+      }
       idea.parentElement.appendChild(riskDiv);
     }
 
@@ -986,7 +1008,7 @@
     });
 
     // Risk management for best deal
-    const bdPosInfo = calcPositionSize(best.entry, best.stop_loss);
+    const bdPosInfo = calcPositionSize(best.entry, best.stop_loss, best.take_profit_1, best.take_profit_2);
     const oldBdRisk = main.parentElement.querySelector(".risk-info");
     if (oldBdRisk) oldBdRisk.remove();
     if (bdPosInfo && best.direction && best.direction !== "flat") {
@@ -997,14 +1019,17 @@
         ["Риск на сделку", `${fmtPrice(bdPosInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
         ["Размер позиции", `${bdPosInfo.positionSizeCoins.toFixed(6)} ${best.coin}`, ""],
         ["Стоимость позиции", `${fmtPrice(bdPosInfo.positionValueUsdt)} USDT${bdLeverageLabel}`, "warn"],
+        ["Комиссия (≈)", `${fmtPrice(bdPosInfo.commissionTotal)} USDT`, "short"],
       ];
-      if (best.take_profit_1 != null) {
-        const tp1Profit = bdPosInfo.positionSizeCoins * Math.abs(best.take_profit_1 - best.entry);
-        riskRows.push(["Профит при TP1", `+${fmtPrice(tp1Profit)} USDT`, "long"]);
+      if (bdPosInfo.tp1Profit != null) {
+        const netCls = bdPosInfo.tp1Net > 0 ? "long" : "short";
+        riskRows.push(["Профит при TP1", `+${fmtPrice(bdPosInfo.tp1Profit)} USDT`, "long"]);
+        riskRows.push(["Чистый профит TP1", `${bdPosInfo.tp1Net >= 0 ? "+" : ""}${fmtPrice(bdPosInfo.tp1Net)} USDT`, netCls]);
       }
-      if (best.take_profit_2 != null) {
-        const tp2Profit = bdPosInfo.positionSizeCoins * Math.abs(best.take_profit_2 - best.entry);
-        riskRows.push(["Профит при TP2", `+${fmtPrice(tp2Profit)} USDT`, "long"]);
+      if (bdPosInfo.tp2Profit != null) {
+        const netCls = bdPosInfo.tp2Net > 0 ? "long" : "short";
+        riskRows.push(["Профит при TP2", `+${fmtPrice(bdPosInfo.tp2Profit)} USDT`, "long"]);
+        riskRows.push(["Чистый профит TP2", `${bdPosInfo.tp2Net >= 0 ? "+" : ""}${fmtPrice(bdPosInfo.tp2Net)} USDT`, netCls]);
       }
       riskRows.forEach(([k, v, cls]) => {
         const kEl = document.createElement("div");
@@ -1016,6 +1041,13 @@
         riskDiv.appendChild(kEl);
         riskDiv.appendChild(vEl);
       });
+      const bdBestNet = bdPosInfo.tp1Net != null ? bdPosInfo.tp1Net : bdPosInfo.tp2Net;
+      if (bdBestNet != null && bdBestNet <= 0) {
+        const warn = document.createElement("div");
+        warn.className = "risk-warn-negative";
+        warn.textContent = "⚠ Комиссия съедает профит. Рекомендуется увеличить баланс или использовать лимитные ордера (комиссия ×2.5 ниже).";
+        riskDiv.appendChild(warn);
+      }
       main.parentElement.appendChild(riskDiv);
     }
 

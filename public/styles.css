@@ -402,7 +402,16 @@ body::after {
 .risk-info .k {
   color: var(--text-muted);
 }
-
+.risk-warn-negative {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: #ef4444;
+  padding: 6px 10px;
+  margin-top: 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
 
 /* Floating theme toggle. Mirrors the crypto-assistant button. */
 .theme-toggle {
