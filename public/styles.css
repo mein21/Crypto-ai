@@ -1894,7 +1894,7 @@ h1 {
 }
 .watch-item {
   display: grid;
-  grid-template-columns: 1fr auto auto auto auto;
+  grid-template-columns: 1fr auto auto auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
@@ -1938,6 +1938,51 @@ h1 {
   border-color: var(--red, #ef5350);
   color: var(--red, #ef5350);
   background: rgba(239, 83, 80, 0.1);
+}
+.watch-check {
+  background: none;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+.watch-check:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.1);
+}
+.watch-check:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.watch-status {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
+  margin-top: 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+.watch-status-price {
+  color: var(--text-secondary);
+}
+.watch-status-pnl.profit {
+  color: var(--green, #4caf50);
+  font-weight: 700;
+}
+.watch-status-pnl.loss {
+  color: var(--red, #ef5350);
+  font-weight: 700;
+}
+.watch-status-dist {
+  color: var(--text-muted);
 }
 .send-to-bot-btn {
   margin-top: 16px;

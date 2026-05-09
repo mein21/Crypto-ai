@@ -1314,11 +1314,54 @@
         <span class="watch-price">\u0412\u0445\u043E\u0434: ${fmtPrice(w.entry)}</span>
         <span class="watch-target sl">SL: ${fmtPrice(w.stop_loss)}</span>
         <span class="watch-target tp">TP1: ${fmtPrice(w.take_profit_1)}${w.tp1_hit ? " \u2705" : ""}</span>
+        <button class="watch-check" data-id="${w.id}" title="\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C">\uD83D\uDD0D</button>
         <button class="watch-remove" data-id="${w.id}">\u2716</button>
       `;
+      item.querySelector(".watch-check").addEventListener("click", () => checkWatch(w));
       item.querySelector(".watch-remove").addEventListener("click", () => removeWatch(w.id));
       list.appendChild(item);
     });
+  }
+
+  async function checkWatch(watch) {
+    const btn = document.querySelector(`.watch-check[data-id="${watch.id}"]`);
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = "\u23F3";
+    try {
+      const r = await fetch(`${API_BASE}/price/${watch.coin}`, withAuth());
+      if (!r.ok) throw new Error("Ошибка");
+      const data = await r.json();
+      const price = data.price;
+      const isLong = watch.direction === "long";
+      const pnl = isLong ? price - watch.entry : watch.entry - price;
+      const pnlPct = ((pnl / watch.entry) * 100).toFixed(2);
+      const posInfo = calcPositionSize(watch.entry, watch.stop_loss, watch.take_profit_1, watch.take_profit_2);
+      const pnlUsdt = posInfo ? (posInfo.positionSizeCoins * pnl).toFixed(2) : null;
+
+      const item = btn.closest(".watch-item");
+      let statusEl = item.querySelector(".watch-status");
+      if (!statusEl) {
+        statusEl = document.createElement("div");
+        statusEl.className = "watch-status";
+        item.appendChild(statusEl);
+      }
+      const pnlClass = pnl >= 0 ? "profit" : "loss";
+      const pnlSign = pnl >= 0 ? "+" : "";
+      const distToSl = ((Math.abs(price - watch.stop_loss) / price) * 100).toFixed(2);
+      const distToTp1 = watch.take_profit_1 != null ? ((Math.abs(watch.take_profit_1 - price) / price) * 100).toFixed(2) : null;
+      statusEl.innerHTML = `
+        <span class="watch-status-price">Цена: ${fmtPrice(price)}</span>
+        <span class="watch-status-pnl ${pnlClass}">${pnlSign}${pnlPct}%${pnlUsdt ? ` (${pnlSign}${pnlUsdt} USDT)` : ""}</span>
+        <span class="watch-status-dist">До SL: ${distToSl}%${distToTp1 ? ` · До TP1: ${distToTp1}%` : ""}</span>
+      `;
+      btn.textContent = "\uD83D\uDD0D";
+    } catch {
+      btn.textContent = "\u274C";
+      setTimeout(() => { btn.textContent = "\uD83D\uDD0D"; }, 2000);
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   function startPolling() {
