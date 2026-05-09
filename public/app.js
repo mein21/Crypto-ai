@@ -85,16 +85,10 @@
     if (entry == null || stopLoss == null || entry === stopLoss) return null;
     const riskAmount = balance * riskPercent / 100;
     const slDistance = Math.abs(entry - stopLoss);
-    let positionSizeCoins = riskAmount / slDistance;
-    let positionValueUsdt = positionSizeCoins * entry;
-    let capped = false;
-    if (positionValueUsdt > balance) {
-      positionSizeCoins = balance / entry;
-      positionValueUsdt = balance;
-      capped = true;
-    }
-    const actualRisk = positionSizeCoins * slDistance;
-    return { riskAmount: capped ? actualRisk : riskAmount, positionSizeCoins, positionValueUsdt, slDistance, capped };
+    const positionSizeCoins = riskAmount / slDistance;
+    const positionValueUsdt = positionSizeCoins * entry;
+    const leverage = positionValueUsdt > balance ? positionValueUsdt / balance : 1;
+    return { riskAmount, positionSizeCoins, positionValueUsdt, slDistance, leverage };
   }
 
   function updateBalanceOnHit(watch, hitType, hitPrice) {
@@ -818,10 +812,11 @@
     if (posInfo && sig.direction && sig.direction !== "flat") {
       const riskDiv = document.createElement("div");
       riskDiv.className = "kv risk-info";
+      const leverageLabel = posInfo.leverage > 1 ? ` (плечо ×${posInfo.leverage.toFixed(1)})` : "";
       const riskRows = [
-        ["Риск на сделку", `${fmtPrice(posInfo.riskAmount)} USDT (${posInfo.capped ? "ограничен" : riskPercent + "%"})`, "short"],
+        ["Риск на сделку", `${fmtPrice(posInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
         ["Размер позиции", `${posInfo.positionSizeCoins.toFixed(6)} ${analysis.coin}`, ""],
-        ["Стоимость позиции", `${fmtPrice(posInfo.positionValueUsdt)} USDT`, "warn"],
+        ["Стоимость позиции", `${fmtPrice(posInfo.positionValueUsdt)} USDT${leverageLabel}`, "warn"],
       ];
       if (sig.take_profit_1 != null) {
         const tp1Profit = posInfo.positionSizeCoins * Math.abs(sig.take_profit_1 - sig.entry);
@@ -841,12 +836,6 @@
         riskDiv.appendChild(kEl);
         riskDiv.appendChild(vEl);
       });
-      if (posInfo.capped) {
-        const warn = document.createElement("div");
-        warn.className = "risk-cap-warning";
-        warn.textContent = "Позиция ограничена балансом (без плеча)";
-        riskDiv.appendChild(warn);
-      }
       idea.parentElement.appendChild(riskDiv);
     }
 
@@ -1003,10 +992,11 @@
     if (bdPosInfo && best.direction && best.direction !== "flat") {
       const riskDiv = document.createElement("div");
       riskDiv.className = "kv risk-info";
+      const bdLeverageLabel = bdPosInfo.leverage > 1 ? ` (плечо ×${bdPosInfo.leverage.toFixed(1)})` : "";
       const riskRows = [
-        ["Риск на сделку", `${fmtPrice(bdPosInfo.riskAmount)} USDT (${bdPosInfo.capped ? "ограничен" : riskPercent + "%"})`, "short"],
+        ["Риск на сделку", `${fmtPrice(bdPosInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
         ["Размер позиции", `${bdPosInfo.positionSizeCoins.toFixed(6)} ${best.coin}`, ""],
-        ["Стоимость позиции", `${fmtPrice(bdPosInfo.positionValueUsdt)} USDT`, "warn"],
+        ["Стоимость позиции", `${fmtPrice(bdPosInfo.positionValueUsdt)} USDT${bdLeverageLabel}`, "warn"],
       ];
       if (best.take_profit_1 != null) {
         const tp1Profit = bdPosInfo.positionSizeCoins * Math.abs(best.take_profit_1 - best.entry);
@@ -1026,12 +1016,6 @@
         riskDiv.appendChild(kEl);
         riskDiv.appendChild(vEl);
       });
-      if (bdPosInfo.capped) {
-        const warn = document.createElement("div");
-        warn.className = "risk-cap-warning";
-        warn.textContent = "Позиция ограничена балансом (без плеча)";
-        riskDiv.appendChild(warn);
-      }
       main.parentElement.appendChild(riskDiv);
     }
 
