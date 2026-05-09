@@ -1984,6 +1984,19 @@ h1 {
 .watch-status-dist {
   color: var(--text-muted);
 }
+.watch-status-verdict {
+  font-weight: 700;
+  width: 100%;
+}
+.watch-status-verdict.profit {
+  color: var(--green, #4caf50);
+}
+.watch-status-verdict.loss {
+  color: var(--red, #ef5350);
+}
+.watch-status-verdict.warn {
+  color: #f59e0b;
+}
 .send-to-bot-btn {
   margin-top: 16px;
   width: 100%;

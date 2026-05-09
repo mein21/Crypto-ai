@@ -1329,15 +1329,18 @@
     btn.disabled = true;
     btn.textContent = "\u23F3";
     try {
-      const r = await fetch(`${API_BASE}/price/${watch.coin}`, withAuth());
-      if (!r.ok) throw new Error("Ошибка");
-      const data = await r.json();
-      const price = data.price;
-      const isLong = watch.direction === "long";
-      const pnl = isLong ? price - watch.entry : watch.entry - price;
-      const pnlPct = ((pnl / watch.entry) * 100).toFixed(2);
-      const posInfo = calcPositionSize(watch.entry, watch.stop_loss, watch.take_profit_1, watch.take_profit_2);
-      const pnlUsdt = posInfo ? (posInfo.positionSizeCoins * pnl).toFixed(2) : null;
+      const r = await fetch(
+        `${API_BASE}/analyze`,
+        withAuth({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ coin: watch.coin, timeframe: watch.timeframe }),
+        }),
+      );
+      if (!r.ok) throw new Error("Ошибка анализа");
+      const j = await r.json();
+      const sig = j.analysis?.signal || {};
+      const price = j.last_price;
 
       const item = btn.closest(".watch-item");
       let statusEl = item.querySelector(".watch-status");
@@ -1346,13 +1349,44 @@
         statusEl.className = "watch-status";
         item.appendChild(statusEl);
       }
-      const pnlClass = pnl >= 0 ? "profit" : "loss";
+
+      // Strategy validity
+      const sameDir = sig.direction === watch.direction;
+      const isFlat = sig.direction === "flat";
+      const newConf = sig.confidence ?? 0;
+
+      let verdict, verdictClass;
+      if (isFlat) {
+        verdict = "\u274C Сигнал потерян — рекомендуется закрыть";
+        verdictClass = "loss";
+      } else if (!sameDir) {
+        verdict = `\u274C Сигнал сменился на ${sig.direction === "long" ? "ЛОНГ" : "ШОРТ"} — стратегия неактуальна`;
+        verdictClass = "loss";
+      } else if (newConf < 40) {
+        verdict = `\u26A0 Актуальна, но уверенность низкая (${newConf}%)`;
+        verdictClass = "warn";
+      } else {
+        verdict = `\u2705 Актуальна (${newConf}%)`;
+        verdictClass = "profit";
+      }
+
+      // PnL calculation
+      const isLong = watch.direction === "long";
+      const pnl = isLong ? price - watch.entry : watch.entry - price;
+      const pnlPct = ((pnl / watch.entry) * 100).toFixed(2);
       const pnlSign = pnl >= 0 ? "+" : "";
+      const pnlClass = pnl >= 0 ? "profit" : "loss";
+      const posInfo = calcPositionSize(watch.entry, watch.stop_loss, watch.take_profit_1, watch.take_profit_2);
+      const pnlUsdt = posInfo ? (posInfo.positionSizeCoins * pnl).toFixed(2) : null;
+
+      // Distances
       const distToSl = ((Math.abs(price - watch.stop_loss) / price) * 100).toFixed(2);
       const distToTp1 = watch.take_profit_1 != null ? ((Math.abs(watch.take_profit_1 - price) / price) * 100).toFixed(2) : null;
+
       statusEl.innerHTML = `
-        <span class="watch-status-price">Цена: ${fmtPrice(price)}</span>
-        <span class="watch-status-pnl ${pnlClass}">${pnlSign}${pnlPct}%${pnlUsdt ? ` (${pnlSign}${pnlUsdt} USDT)` : ""}</span>
+        <span class="watch-status-verdict ${verdictClass}">${verdict}</span>
+        <span class="watch-status-price">Цена: ${fmtPrice(price)} · Тренд: ${j.analysis?.trend || "—"}</span>
+        <span class="watch-status-pnl ${pnlClass}">PnL: ${pnlSign}${pnlPct}%${pnlUsdt ? ` (${pnlSign}${pnlUsdt} USDT)` : ""}</span>
         <span class="watch-status-dist">До SL: ${distToSl}%${distToTp1 ? ` · До TP1: ${distToTp1}%` : ""}</span>
       `;
       btn.textContent = "\uD83D\uDD0D";
