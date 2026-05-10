@@ -1542,7 +1542,6 @@
 
     if (slHit) {
       const pct = watch.tp1_hit ? 0.5 : 1.0;
-      if (!watch.tp1_hit) incrementFailedTrades();
       addTradeToHistory(watch, "SL", price, pct);
       await sendAlert(watch, "SL", price);
       removeWatch(watch.id);
@@ -1823,9 +1822,20 @@
     });
   }
 
+  function setupFailedTradesClick() {
+    const widget = $("failed-trades-widget");
+    if (!widget) return;
+    widget.style.cursor = "pointer";
+    widget.addEventListener("click", () => {
+      if (isLockedOut()) return;
+      incrementFailedTrades();
+    });
+  }
+
   function init() {
     setupThemeToggle();
     renderFailedTradesWidget();
+    setupFailedTradesClick();
     setupSnakeControls();
     if (isLockedOut()) activateLockout();
     buildChips("coin-row", COINS, "coin");
