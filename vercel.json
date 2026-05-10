@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "crons": [
+    { "path": "/notify-check", "schedule": "0 13 * * *" }
+  ],
   "builds": [
     { "src": "api/index.py", "use": "@vercel/python", "config": { "maxLambdaSize": "250mb" } },
     { "src": "public/**", "use": "@vercel/static" }
@@ -8,6 +11,14 @@
     { "src": "/healthz", "dest": "api/index.py" },
     { "src": "/coins", "dest": "api/index.py" },
     { "src": "/analyze", "dest": "api/index.py" },
+    { "src": "/best-deal", "dest": "api/index.py" },
+    { "src": "/notify-check", "dest": "api/index.py" },
+    { "src": "/telegram-webhook", "dest": "api/index.py" },
+    { "src": "/set-telegram-webhook", "dest": "api/index.py" },
+    { "src": "/price/.*", "dest": "api/index.py" },
+    { "src": "/send-alert", "dest": "api/index.py" },
+    { "src": "/watches.*", "dest": "api/index.py" },
+    { "src": "/context", "dest": "api/index.py" },
     { "src": "/", "dest": "/public/index.html" },
     { "src": "/(.*\\.(?:css|js|png|jpg|jpeg|svg|ico|webmanifest|map))", "dest": "/public/$1" },
     { "src": "/(.*)", "dest": "/public/index.html" }

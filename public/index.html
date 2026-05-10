@@ -3,29 +3,53 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Crypto AI Analyzer</title>
     <meta name="description" content="ИИ-анализ криптовалют: график с разметкой и торговая идея в один клик" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles.css" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          if (t !== "light" && t !== "dark") t = "dark";
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
   </head>
   <body>
+    <div class="top-bar">
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Переключить тему" title="Переключить тему">
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+    </div>
     <div class="app">
       <header class="hero">
         <div class="brand">
           <div class="logo">⌬</div>
-          <div>
-            <h1>Crypto AI Analyzer</h1>
-            <p class="subtitle">
-              Тех. анализ + ИИ-интерпретация в один клик. Свечи, EMA, RSI, MACD,
-              уровни поддержки/сопротивления и торговая идея с уровнями входа,
-              стопа и тейков.
-            </p>
-          </div>
+          <h1>Crypto AI Analyzer</h1>
+          <p class="subtitle">
+            Тех. анализ + ИИ-интерпретация в один клик. Свечи, EMA, RSI, MACD,
+            уровни поддержки/сопротивления и торговая идея с уровнями входа,
+            стопа и тейков.
+          </p>
         </div>
         <div class="status" id="status">
           <span class="dot" id="status-dot"></span>
@@ -42,16 +66,111 @@
           <label>Таймфрейм</label>
           <div class="chip-row" id="tf-row"></div>
         </div>
-        <button class="analyze-btn" id="analyze-btn">
-          <span class="btn-content">
-            <span class="btn-icon">⚡</span>
-            <span>Анализ</span>
-          </span>
-          <span class="btn-spinner" hidden>
-            <span class="spinner"></span>
-            <span>Анализирую…</span>
-          </span>
-        </button>
+        <div class="btn-group">
+          <button class="analyze-btn" id="analyze-btn">
+            <span class="btn-content">
+              <span class="btn-icon">⚡</span>
+              <span>Анализ</span>
+            </span>
+            <span class="btn-spinner" hidden>
+              <span class="spinner"></span>
+              <span>Анализирую…</span>
+            </span>
+          </button>
+          <button class="analyze-btn best-deal-btn" id="best-deal-btn">
+            <span class="btn-content">
+              <span class="btn-icon">🏆</span>
+              <span>Лучшая сделка</span>
+            </span>
+            <span class="btn-spinner" hidden>
+              <span class="spinner"></span>
+              <span>Сканирую…</span>
+            </span>
+          </button>
+          <button class="analyze-btn notify-btn" id="notify-btn">
+            <span class="btn-content">
+              <span class="btn-icon">🔔</span>
+              <span>Проверить сигналы</span>
+            </span>
+            <span class="btn-spinner" hidden>
+              <span class="spinner"></span>
+              <span>Проверяю…</span>
+            </span>
+          </button>
+        </div>
+      </section>
+
+      <section id="best-deal-result" class="best-deal-result" hidden>
+        <div class="card best-deal-card">
+          <div class="best-deal-header">
+            <h2>🏆 Лучшая сделка</h2>
+            <div class="signal-badge" id="best-deal-badge">—</div>
+          </div>
+          <div class="best-deal-body">
+            <div class="best-deal-main" id="best-deal-main"></div>
+            <div class="best-deal-rationale muted" id="best-deal-rationale"></div>
+          </div>
+          <div class="best-deal-footer muted" id="best-deal-footer"></div>
+          <div class="best-deal-runners">
+            <h4>Топ-5 сделок</h4>
+            <div class="runners-list" id="best-deal-runners"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="market-context" class="market-context" hidden>
+        <div class="card fng-card">
+          <div class="fng-head">
+            <h3>Индекс страха и жадности</h3>
+            <p class="muted">Источник: alternative.me · обновляется ежедневно</p>
+          </div>
+          <div class="fng-body">
+            <div class="fng-gauge" id="fng-gauge">
+              <div class="fng-value" id="fng-value">—</div>
+              <div class="fng-label" id="fng-label">—</div>
+            </div>
+            <div class="fng-bar">
+              <div class="fng-bar-track">
+                <div class="fng-bar-fill" id="fng-bar-fill"></div>
+              </div>
+              <div class="fng-bar-legend">
+                <span>Экстр. страх</span><span>Страх</span><span>Нейтр.</span><span>Жадность</span><span>Экстр. жадность</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card corr-card">
+          <div class="corr-head">
+            <h3>Корреляция vs BTC за 30 дней</h3>
+            <p class="muted">log-returns по 1d · ccxt → OKX/KuCoin/Bybit/Coinbase</p>
+          </div>
+          <div class="corr-wrap">
+            <table class="corr-table" id="corr-table"></table>
+          </div>
+          <ul class="corr-mobile" id="corr-mobile"></ul>
+          <p class="muted" id="corr-meta">—</p>
+        </div>
+      </section>
+
+      <section id="watches-panel" class="watches-panel" hidden>
+        <div class="card watches-card">
+          <div class="watches-header">
+            <h2>👁 Активные отслеживания</h2>
+            <span class="watches-count" id="watches-count">0</span>
+          </div>
+          <div class="watches-list" id="watches-list"></div>
+          <button class="analyze-btn send-to-bot-btn" id="send-to-bot-btn" type="button">
+            <span class="btn-content">
+              <span class="btn-icon">📤</span>
+              <span>Отправить анализ в Telegram</span>
+            </span>
+            <span class="btn-spinner" hidden>
+              <span class="spinner"></span>
+              <span>Анализирую…</span>
+            </span>
+          </button>
+        </div>
       </section>
 
       <section id="error-box" class="error-box card" hidden></section>
@@ -68,6 +187,7 @@
               <div class="signal-badge" id="signal-badge">—</div>
             </div>
           </div>
+          <div class="htf-strip" id="htf-strip" hidden></div>
           <div class="chart-wrap">
             <img id="chart-img" alt="Annotated chart" />
           </div>
@@ -90,11 +210,66 @@
             <div class="levels" id="levels-list"></div>
           </div>
 
+          <div class="card patterns-card">
+            <h3>Свечные паттерны <span class="muted-inline" id="patterns-meta">(последние 10 свечей)</span></h3>
+            <ul class="patterns-list" id="patterns-list"></ul>
+          </div>
+
+          <div class="card vp-card" id="vp-card" hidden>
+            <h3>Volume profile <span class="muted-inline">POC · VAH · VAL</span></h3>
+            <div class="kv" id="vp-kv"></div>
+            <div class="vp-bars" id="vp-bars"></div>
+          </div>
+
+          <div class="card flow-card" id="flow-card" hidden>
+            <h3>Order flow (CVD) <span class="muted-inline">приближение из OHLCV</span></h3>
+            <div class="kv" id="flow-kv"></div>
+            <p class="muted" id="flow-note"></p>
+          </div>
+
+          <div class="card alignment-card" id="alignment-card" hidden>
+            <h3>Multi-TF alignment <span class="muted-inline">согласованность ТФ</span></h3>
+            <div class="alignment-score">
+              <div class="alignment-num" id="alignment-num">—</div>
+              <div class="alignment-label" id="alignment-label">—</div>
+            </div>
+            <div class="alignment-bar"><div class="alignment-fill" id="alignment-fill"></div></div>
+            <ul class="alignment-list" id="alignment-list"></ul>
+          </div>
+
+          <div class="card sentiment-card" id="sentiment-card" hidden>
+            <h3>Sentiment composite <span class="muted-inline">F&amp;G + новости + моментум</span></h3>
+            <div class="sentiment-score">
+              <div class="sentiment-num" id="sentiment-num">—</div>
+              <div class="sentiment-label" id="sentiment-label">—</div>
+            </div>
+            <div class="sentiment-bar"><div class="sentiment-fill" id="sentiment-fill"></div></div>
+            <div class="kv" id="sentiment-kv"></div>
+          </div>
+
+          <div class="card strategy-card" id="strategy-card" hidden>
+            <h3>Walk-forward стратегии <span class="muted-inline">rules-based бэктест</span></h3>
+            <div class="kv" id="strategy-kv"></div>
+            <div class="strategy-windows" id="strategy-windows"></div>
+          </div>
+
           <div class="card">
             <h3>Комментарий ИИ</h3>
             <p id="narrative"></p>
             <h4>Риски</h4>
             <ul id="risks"></ul>
+          </div>
+
+          <div class="card news-card">
+            <h3>Новости по монете</h3>
+            <p class="muted">Источник: Cointelegraph RSS</p>
+            <ul class="news-list" id="news-list"></ul>
+          </div>
+
+          <div class="card onchain-card" id="onchain-card" hidden>
+            <h3 id="onchain-title">Он-чейн</h3>
+            <p class="muted" id="onchain-source">—</p>
+            <div class="onchain-grid" id="onchain-grid"></div>
           </div>
         </div>
 
