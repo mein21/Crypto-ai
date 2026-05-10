@@ -1,4 +1,4 @@
-"""Auxiliary market context: Fear & Greed index, news, correlation, multi-TF.
+"""Auxiliary market context: Fear & Greed index, news, correlation, multi-TF, analytics.
 
 All sources are free and do not require API keys.
 
@@ -6,6 +6,7 @@ All sources are free and do not require API keys.
 - News: Cointelegraph RSS per coin tag (free, no auth)
 - Correlation: built from ccxt OHLCV (1d, 30 candles)
 - Multi-TF trends: built from ccxt OHLCV (the next two higher timeframes)
+- Analytics: funding rate + open interest from Binance Futures (public, no key)
 """
 from __future__ import annotations
 
@@ -224,3 +225,71 @@ def fetch_correlation_vs_btc(window_days: int = 30) -> dict | None:
     }
     _cache.set(f"corr_btc:{window_days}", out)
     return out
+
+
+# ---- Analytical centers (funding rate, open interest, long/short ratio) ---
+
+_ANALYTICS_SYMBOLS = {
+    "BTC": "BTCUSDT",
+    "ETH": "ETHUSDT",
+    "BNB": "BNBUSDT",
+    "SOL": "SOLUSDT",
+    "XRP": "XRPUSDT",
+    "ADA": "ADAUSDT",
+    "DOGE": "DOGEUSDT",
+    "AVAX": "AVAXUSDT",
+    "TON": "TONUSDT",
+    "DOT": "DOTUSDT",
+}
+
+
+def fetch_analytics(coin: str) -> dict | None:
+    """Fetch funding rate, open interest, and long/short ratio from Binance Futures."""
+    symbol = _ANALYTICS_SYMBOLS.get(coin)
+    if not symbol:
+        return None
+    cache_key = f"analytics:{coin}"
+    cached = _cache.get(cache_key, ttl=300)  # 5 min
+    if cached is not None:
+        return cached
+    result: dict[str, Any] = {}
+    try:
+        with httpx.Client(timeout=10) as c:
+            # Funding rate
+            r = c.get(
+                "https://fapi.binance.com/fapi/v1/fundingRate",
+                params={"symbol": symbol, "limit": "1"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if data:
+                    result["funding_rate"] = float(data[-1].get("fundingRate", 0))
+                    result["funding_rate_pct"] = round(result["funding_rate"] * 100, 4)
+
+            # Open interest
+            r2 = c.get(
+                "https://fapi.binance.com/fapi/v1/openInterest",
+                params={"symbol": symbol},
+            )
+            if r2.status_code == 200:
+                data2 = r2.json()
+                result["open_interest"] = float(data2.get("openInterest", 0))
+
+            # Long/short ratio (top traders)
+            r3 = c.get(
+                "https://fapi.binance.com/futures/data/topLongShortAccountRatio",
+                params={"symbol": symbol, "period": "1h", "limit": "1"},
+            )
+            if r3.status_code == 200:
+                data3 = r3.json()
+                if data3:
+                    result["long_short_ratio"] = float(data3[-1].get("longShortRatio", 1.0))
+                    result["long_account_pct"] = float(data3[-1].get("longAccount", 0.5)) * 100
+                    result["short_account_pct"] = float(data3[-1].get("shortAccount", 0.5)) * 100
+    except Exception as e:  # noqa: BLE001
+        log.warning("Analytics fetch failed for %s: %s", coin, e)
+
+    if result:
+        _cache.set(cache_key, result)
+        return result
+    return None

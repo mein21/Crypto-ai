@@ -346,7 +346,7 @@ def test_fallback_long_stop_when_at_resistance():
         assert analysis.signal.entry_type == "stop"
         assert analysis.signal.entry > summary["close"]
     else:
-        # Acceptable outcome: breakout target too close to provide RR ≥ 1.5 → flat.
+        # Acceptable outcome: breakout target too close to provide RR ≥ 1.7 → flat.
         assert analysis.signal.direction == "flat"
 
 

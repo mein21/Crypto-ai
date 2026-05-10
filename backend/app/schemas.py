@@ -219,6 +219,15 @@ class Onchain(BaseModel):
     eth: Optional[EthOnchain] = None
 
 
+class Analytics(BaseModel):
+    funding_rate: Optional[float] = None
+    funding_rate_pct: Optional[float] = None
+    open_interest: Optional[float] = None
+    long_short_ratio: Optional[float] = None
+    long_account_pct: Optional[float] = None
+    short_account_pct: Optional[float] = None
+
+
 class AnalyzeResponse(BaseModel):
     analysis: Analysis
     chart_png_b64: str
@@ -233,6 +242,7 @@ class AnalyzeResponse(BaseModel):
     alignment: Optional[Alignment] = None
     sentiment: Optional[Sentiment] = None
     strategy_stats: Optional[StrategyStats] = None
+    analytics: Optional[Analytics] = None
 
 
 class BestDealRequest(BaseModel):

@@ -80,6 +80,240 @@
     closeBalanceEdit();
   }
 
+  // --- Failed trades lockout management (UTC+3 daily reset) ---
+  const MAX_FAILED_TRADES = 3;
+  const UTC_OFFSET_HOURS = 3;
+
+  function getTodayKeyUtc3() {
+    const now = new Date();
+    const utc3 = new Date(now.getTime() + UTC_OFFSET_HOURS * 3600000);
+    return utc3.toISOString().slice(0, 10);
+  }
+
+  function loadFailedTrades() {
+    try {
+      const raw = JSON.parse(localStorage.getItem("crypto_failed_trades") || "{}");
+      const today = getTodayKeyUtc3();
+      if (raw.date !== today) return { date: today, count: 0 };
+      return { date: today, count: raw.count || 0 };
+    } catch { return { date: getTodayKeyUtc3(), count: 0 }; }
+  }
+
+  function saveFailedTrades(data) {
+    try { localStorage.setItem("crypto_failed_trades", JSON.stringify(data)); } catch {}
+  }
+
+  let failedTrades = loadFailedTrades();
+
+  function incrementFailedTrades() {
+    failedTrades = loadFailedTrades();
+    failedTrades.count = Math.min(failedTrades.count + 1, MAX_FAILED_TRADES);
+    saveFailedTrades(failedTrades);
+    renderFailedTradesWidget();
+    if (failedTrades.count >= MAX_FAILED_TRADES) {
+      activateLockout();
+    }
+  }
+
+  function isLockedOut() {
+    failedTrades = loadFailedTrades();
+    return failedTrades.count >= MAX_FAILED_TRADES;
+  }
+
+  function renderFailedTradesWidget() {
+    const el = $("failed-trades-counter");
+    const widget = $("failed-trades-widget");
+    if (!el || !widget) return;
+    failedTrades = loadFailedTrades();
+    el.textContent = `${failedTrades.count}/${MAX_FAILED_TRADES}`;
+    widget.classList.remove("warning", "danger");
+    if (failedTrades.count >= MAX_FAILED_TRADES) {
+      widget.classList.add("danger");
+    } else if (failedTrades.count >= 2) {
+      widget.classList.add("warning");
+    }
+  }
+
+  function getMidnightUtc3() {
+    const now = new Date();
+    const utc3Now = new Date(now.getTime() + UTC_OFFSET_HOURS * 3600000);
+    const tomorrow = new Date(utc3Now);
+    tomorrow.setUTCHours(0, 0, 0, 0);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    return new Date(tomorrow.getTime() - UTC_OFFSET_HOURS * 3600000);
+  }
+
+  let lockoutCountdownTimer = null;
+
+  function activateLockout() {
+    const overlay = $("lockout-overlay");
+    if (!overlay) return;
+    overlay.hidden = false;
+    startLockoutCountdown();
+  }
+
+  function deactivateLockout() {
+    const overlay = $("lockout-overlay");
+    if (overlay) overlay.hidden = true;
+    if (lockoutCountdownTimer) {
+      clearInterval(lockoutCountdownTimer);
+      lockoutCountdownTimer = null;
+    }
+    stopSnake();
+  }
+
+  function startLockoutCountdown() {
+    const countdownEl = $("lockout-countdown");
+    if (!countdownEl) return;
+    function tick() {
+      const now = new Date();
+      const target = getMidnightUtc3();
+      const diff = target.getTime() - now.getTime();
+      if (diff <= 0) {
+        failedTrades = { date: getTodayKeyUtc3(), count: 0 };
+        saveFailedTrades(failedTrades);
+        renderFailedTradesWidget();
+        deactivateLockout();
+        return;
+      }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      countdownEl.textContent = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+    tick();
+    lockoutCountdownTimer = setInterval(tick, 1000);
+  }
+
+  // --- Snake game ---
+  let snakeInterval = null;
+  let snakeState = null;
+
+  function initSnake() {
+    const canvas = $("snake-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const gridSize = 16;
+    const tileCount = canvas.width / gridSize;
+
+    snakeState = {
+      ctx, canvas, gridSize, tileCount,
+      snake: [{ x: 10, y: 10 }],
+      food: { x: 5, y: 5 },
+      dx: 1, dy: 0,
+      score: 0,
+      running: false,
+    };
+    drawSnake();
+  }
+
+  function drawSnake() {
+    if (!snakeState) return;
+    const { ctx, canvas, gridSize, snake, food } = snakeState;
+    const isLight = document.documentElement.getAttribute("data-theme") === "light";
+    ctx.fillStyle = isLight ? "#f0f0f0" : "#0a0a0a";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = isLight ? "#333" : "#f5f5f5";
+    snake.forEach((seg) => {
+      ctx.fillRect(seg.x * gridSize + 1, seg.y * gridSize + 1, gridSize - 2, gridSize - 2);
+    });
+    ctx.fillStyle = isLight ? "#cc3333" : "#ff6b6b";
+    ctx.beginPath();
+    ctx.arc(food.x * gridSize + gridSize / 2, food.y * gridSize + gridSize / 2, gridSize / 2 - 2, 0, 2 * Math.PI);
+    ctx.fill();
+    $("snake-score").textContent = snakeState.score;
+  }
+
+  function stepSnake() {
+    if (!snakeState || !snakeState.running) return;
+    const { snake, food, tileCount } = snakeState;
+    const head = { x: snake[0].x + snakeState.dx, y: snake[0].y + snakeState.dy };
+    if (head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount) {
+      stopSnake(); return;
+    }
+    if (snake.some((s) => s.x === head.x && s.y === head.y)) {
+      stopSnake(); return;
+    }
+    snake.unshift(head);
+    if (head.x === food.x && head.y === food.y) {
+      snakeState.score++;
+      spawnFood();
+    } else {
+      snake.pop();
+    }
+    drawSnake();
+  }
+
+  function spawnFood() {
+    if (!snakeState) return;
+    const { tileCount, snake } = snakeState;
+    let pos;
+    do {
+      pos = { x: Math.floor(Math.random() * tileCount), y: Math.floor(Math.random() * tileCount) };
+    } while (snake.some((s) => s.x === pos.x && s.y === pos.y));
+    snakeState.food = pos;
+  }
+
+  function startSnake() {
+    if (!snakeState) initSnake();
+    if (!snakeState) return;
+    snakeState.snake = [{ x: 10, y: 10 }];
+    snakeState.food = { x: 5, y: 5 };
+    snakeState.dx = 1;
+    snakeState.dy = 0;
+    snakeState.score = 0;
+    snakeState.running = true;
+    if (snakeInterval) clearInterval(snakeInterval);
+    snakeInterval = setInterval(stepSnake, 120);
+    drawSnake();
+    $("snake-start-btn").textContent = "Рестарт";
+  }
+
+  function stopSnake() {
+    if (snakeInterval) { clearInterval(snakeInterval); snakeInterval = null; }
+    if (snakeState) snakeState.running = false;
+    const btn = $("snake-start-btn");
+    if (btn) btn.textContent = "Начать игру";
+  }
+
+  function setupSnakeControls() {
+    document.addEventListener("keydown", (e) => {
+      if (!snakeState || !snakeState.running) return;
+      switch (e.key) {
+        case "ArrowUp": case "w": if (snakeState.dy !== 1) { snakeState.dx = 0; snakeState.dy = -1; } break;
+        case "ArrowDown": case "s": if (snakeState.dy !== -1) { snakeState.dx = 0; snakeState.dy = 1; } break;
+        case "ArrowLeft": case "a": if (snakeState.dx !== 1) { snakeState.dx = -1; snakeState.dy = 0; } break;
+        case "ArrowRight": case "d": if (snakeState.dx !== -1) { snakeState.dx = 1; snakeState.dy = 0; } break;
+      }
+    });
+    const startBtn = $("snake-start-btn");
+    if (startBtn) startBtn.addEventListener("click", startSnake);
+
+    // Touch controls for mobile
+    let touchStartX = 0, touchStartY = 0;
+    const canvas = $("snake-canvas");
+    if (canvas) {
+      canvas.addEventListener("touchstart", (e) => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }, { passive: true });
+      canvas.addEventListener("touchmove", (e) => {
+        if (!snakeState || !snakeState.running) return;
+        const dx = e.touches[0].clientX - touchStartX;
+        const dy = e.touches[0].clientY - touchStartY;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          if (dx > 20 && snakeState.dx !== -1) { snakeState.dx = 1; snakeState.dy = 0; }
+          else if (dx < -20 && snakeState.dx !== 1) { snakeState.dx = -1; snakeState.dy = 0; }
+        } else {
+          if (dy > 20 && snakeState.dy !== -1) { snakeState.dx = 0; snakeState.dy = 1; }
+          else if (dy < -20 && snakeState.dy !== 1) { snakeState.dx = 0; snakeState.dy = -1; }
+        }
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+      }, { passive: true });
+    }
+  }
+
   const TAKER_FEE = 0.0005; // Binance Futures taker 0.05%
 
   function calcPositionSize(entry, stopLoss, tp1, tp2) {
@@ -664,6 +898,44 @@
     });
   }
 
+  function renderAnalytics(data) {
+    const card = $("analytics-card");
+    if (!data) { card.hidden = true; return; }
+    card.hidden = false;
+    const kv = $("analytics-kv");
+    kv.innerHTML = "";
+    const rows = [];
+    if (data.funding_rate_pct != null) {
+      const fr = data.funding_rate_pct;
+      const cls = fr > 0.01 ? "long" : fr < -0.01 ? "short" : "";
+      const label = fr > 0.01 ? "бычий" : fr < -0.01 ? "медвежий" : "нейтрально";
+      rows.push(["Funding rate", `${fr}% (${label})`, cls]);
+    }
+    if (data.open_interest != null) {
+      rows.push(["Open interest", Number(data.open_interest).toLocaleString(), ""]);
+    }
+    if (data.long_short_ratio != null) {
+      const ls = data.long_short_ratio;
+      const cls = ls > 1.2 ? "long" : ls < 0.8 ? "short" : "";
+      const lbl = ls > 1.2 ? "больше лонгов" : ls < 0.8 ? "больше шортов" : "баланс";
+      rows.push(["L/S ratio", `${ls.toFixed(2)} (${lbl})`, cls]);
+    }
+    if (data.long_account_pct != null) {
+      rows.push(["Лонги / Шорты", `${data.long_account_pct.toFixed(1)}% / ${data.short_account_pct.toFixed(1)}%`, ""]);
+    }
+    if (rows.length === 0) { card.hidden = true; return; }
+    rows.forEach(([k, v, cls]) => {
+      const kEl = document.createElement("div");
+      kEl.className = "k";
+      kEl.textContent = k;
+      const vEl = document.createElement("div");
+      vEl.className = "v " + (cls || "");
+      vEl.textContent = v;
+      kv.appendChild(kEl);
+      kv.appendChild(vEl);
+    });
+  }
+
   function congestionLevel(pct) {
     if (pct == null) return { tone: "muted", label: "—" };
     if (pct >= 80) return { tone: "short", label: "перегружено" };
@@ -750,6 +1022,7 @@
       alignment,
       sentiment,
       strategy_stats,
+      analytics,
     } = resp;
     $("result").hidden = false;
     renderHtfStrip(htf_trends);
@@ -760,6 +1033,7 @@
     renderAlignment(alignment);
     renderSentiment(sentiment);
     renderStrategy(strategy_stats);
+    renderAnalytics(analytics);
     if (fear_greed) {
       renderFearGreed(fear_greed);
       $("market-context").hidden = false;
@@ -1134,6 +1408,7 @@
 
   async function bestDeal() {
     if (state.loading) return;
+    if (isLockedOut()) { activateLockout(); return; }
     clearError();
     state.loading = true;
     const btn = $("best-deal-btn");
@@ -1174,6 +1449,7 @@
 
   async function analyze() {
     if (state.loading) return;
+    if (isLockedOut()) { activateLockout(); return; }
     clearError();
     state.loading = true;
     const btn = $("analyze-btn");
@@ -1214,6 +1490,7 @@
 
   async function notifyCheck() {
     if (state.loading) return;
+    if (isLockedOut()) { activateLockout(); return; }
     clearError();
     state.loading = true;
     const btn = $("notify-btn");
@@ -1456,6 +1733,7 @@
 
     if (slHit) {
       updateBalanceOnHit(watch, "SL", price);
+      incrementFailedTrades();
       await sendAlert(watch, "SL", price);
       removeWatch(watch.id);
       return;
@@ -1574,6 +1852,9 @@
   function init() {
     setupThemeToggle();
     setupBalance();
+    renderFailedTradesWidget();
+    setupSnakeControls();
+    if (isLockedOut()) activateLockout();
     buildChips("coin-row", COINS, "coin");
     buildChips("tf-row", TFS, "tf");
     $("analyze-btn").addEventListener("click", analyze);
