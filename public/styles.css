@@ -2092,13 +2092,17 @@ h1 {
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
   border: 1px solid var(--border-soft);
-  cursor: default;
+  cursor: pointer;
   user-select: none;
   transition: all 0.3s var(--easing);
 }
 .failed-trades-widget:hover {
   border-color: var(--border-strong);
   background: var(--bg-surface-strong);
+  transform: translateY(-1px);
+}
+.failed-trades-widget:active {
+  transform: scale(0.95);
 }
 .failed-trades-widget.warning {
   border-color: var(--tone-warn);
