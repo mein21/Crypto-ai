@@ -16,9 +16,11 @@ from .alignment import compute_alignment
 from .backtest import walk_forward_backtest
 from .chart import render_chart_b64
 from .context import (
+    fetch_analytics,
     fetch_correlation_vs_btc,
     fetch_fear_greed,
     fetch_higher_tf_trends,
+    fetch_liquidations,
     fetch_news_for_coin,
 )
 from .data import SYMBOL_MAP, SYMBOL_MAP_USDT, fetch_ohlcv, _exchange, EXCHANGE_ORDER
@@ -32,7 +34,9 @@ from .telegram_bot import handle_update, set_webhook
 from .telegram_notify import notify_if_worthy
 from .schemas import (
     Alignment,
+    Analytics,
     AnalyzeRequest,
+    Liquidations,
     AnalyzeResponse,
     BestDealItem,
     BestDealRequest,
@@ -107,6 +111,9 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
     fng_raw = fetch_fear_greed()
     news_raw = enrich_news(req.coin, fetch_news_for_coin(req.coin, limit=5))
     onchain_raw = fetch_onchain(req.coin)
+    analytics_raw = fetch_analytics(req.coin)
+    liquidations_raw = fetch_liquidations(req.coin)
+    corr_raw = fetch_correlation_vs_btc(window_days=30) if req.coin != "BTC" else None
 
     try:
         atr_last = float(ind.atr.iloc[-1])
@@ -158,6 +165,9 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         "alignment": alignment_raw,
         "sentiment": sentiment_raw,
         "strategy_stats": strategy_raw,
+        "analytics": analytics_raw,
+        "liquidations": liquidations_raw,
+        "correlation": corr_raw,
     }
     analysis = analyze(req.coin, req.timeframe, summary, extra_context=extra_context)
     analysis.patterns = [CandlePattern(**p) for p in patterns_raw]
@@ -191,6 +201,8 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         alignment=Alignment(**alignment_raw) if alignment_raw else None,
         sentiment=Sentiment(**sentiment_raw) if sentiment_raw else None,
         strategy_stats=StrategyStats(**strategy_raw) if strategy_raw else None,
+        analytics=Analytics(**analytics_raw) if analytics_raw else None,
+        liquidations=Liquidations(**liquidations_raw) if liquidations_raw else None,
     )
 
 

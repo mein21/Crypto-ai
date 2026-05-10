@@ -47,6 +47,13 @@
           </div>
         </div>
       </div>
+      <div class="failed-trades-widget" id="failed-trades-widget" title="Неуспешные сделки сегодня">
+        <svg class="failed-trades-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <span class="failed-trades-counter" id="failed-trades-counter">0/3</span>
+      </div>
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Переключить тему" title="Переключить тему">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="4"/>
@@ -115,6 +122,13 @@
               <span>Проверяю…</span>
             </span>
           </button>
+        </div>
+      </section>
+
+      <section id="dashboard-section" class="dashboard-section" hidden>
+        <div class="card">
+          <h3>Обзор рынка</h3>
+          <div class="dashboard-grid" id="dashboard-grid"></div>
         </div>
       </section>
 
@@ -188,6 +202,14 @@
               <span>Анализирую…</span>
             </span>
           </button>
+        </div>
+      </section>
+
+      <section id="history-panel" class="history-panel" hidden>
+        <div class="card">
+          <h3>История сделок</h3>
+          <div class="history-stats" id="history-stats"></div>
+          <div class="history-list" id="history-list"></div>
         </div>
       </section>
 
@@ -265,6 +287,16 @@
             <div class="kv" id="sentiment-kv"></div>
           </div>
 
+          <div class="card analytics-card" id="analytics-card" hidden>
+            <h3>Аналитические центры <span class="muted-inline">Binance Futures</span></h3>
+            <div class="kv" id="analytics-kv"></div>
+          </div>
+
+          <div class="card analytics-card" id="liquidations-card" hidden>
+            <h3>Давление ликвидаций <span class="muted-inline">Taker Buy/Sell</span></h3>
+            <div class="kv" id="liquidations-kv"></div>
+          </div>
+
           <div class="card strategy-card" id="strategy-card" hidden>
             <h3>Walk-forward стратегии <span class="muted-inline">rules-based бэктест</span></h3>
             <div class="kv" id="strategy-kv"></div>
@@ -300,6 +332,22 @@
           Groq Llama 3.3 / Google Gemini. Без автоматического исполнения сделок.
         </p>
       </footer>
+    </div>
+
+    <!-- Lockout overlay when 3 failed trades reached -->
+    <div class="lockout-overlay" id="lockout-overlay" hidden>
+      <div class="lockout-content">
+        <div class="lockout-icon">&#9888;</div>
+        <h2 class="lockout-title">Торговля приостановлена</h2>
+        <p class="lockout-msg">Достигнут лимит неуспешных сделок (3/3).</p>
+        <p class="lockout-timer">Разблокировка в <span id="lockout-countdown">--:--:--</span> (00:00 UTC+3)</p>
+        <div class="lockout-game-wrap">
+          <p class="lockout-game-hint">Пока ждёшь — поиграй в Snake!</p>
+          <canvas id="snake-canvas" width="320" height="320"></canvas>
+          <p class="snake-score">Счёт: <span id="snake-score">0</span></p>
+          <button class="snake-start-btn" id="snake-start-btn" type="button">Начать игру</button>
+        </div>
+      </div>
     </div>
 
     <script src="./app.js"></script>

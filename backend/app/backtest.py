@@ -56,9 +56,9 @@ def _rules_signal(close: float, last: dict) -> tuple[str, float, float, float]:
     bullish = trend == "восходящий" and macd_state in {"бычий", "нейтрально"} and rsi_v < 70
     bearish = trend == "нисходящий" and macd_state in {"медвежий", "нейтрально"} and rsi_v > 30
     if bullish:
-        return "long", float(close), 1.0 * atr_v, 1.5 * atr_v
+        return "long", float(close), 1.0 * atr_v, 1.7 * atr_v
     if bearish:
-        return "short", float(close), 1.0 * atr_v, 1.5 * atr_v
+        return "short", float(close), 1.0 * atr_v, 1.7 * atr_v
     return "flat", 0.0, 0.0, 0.0
 
 

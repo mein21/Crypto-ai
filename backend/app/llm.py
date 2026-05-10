@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 # Minimum acceptable risk:reward ratio. Below this we refuse to publish a
 # trade idea (downgrade to flat) — taking 1:1 setups against fees+slippage is
 # negative-expectation in the long run.
-MIN_RR = 1.5
+MIN_RR = 1.7
 
 # Volatility cap: if ATR is more than this fraction of price the market is
 # in a regime where stop placement is unreliable. We refuse a directional
@@ -52,7 +52,7 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
 - Для long: stop_loss < entry < take_profit_1 ≤ take_profit_2.
 - Для short: stop_loss > entry > take_profit_1 ≥ take_profit_2.
 - Stop-loss располагай за ближайшим уровнем (поддержки для long, сопротивления для short) с буфером 0.3-0.7 ATR.
-- Take-profit-1 — RR ≈ 1.5 (допустимо 1.3–1.7). Если ближайший уровень даёт RR заметно меньше — отодвинь TP1 дальше; если сильно больше — выбирай ближе. Если по уровням 1.5 не получается — direction = "flat".
+- Take-profit-1 — RR ≈ 1.7 (допустимо 1.5–2.0). Если ближайший уровень даёт RR заметно меньше — отодвинь TP1 дальше; если сильно больше — выбирай ближе. Если по уровням 1.7 не получается — direction = "flat".
 - Take-profit-2 — RR ≈ 2.5 (допустимо 2.0–3.5).
 - Если ATR > 8% от цены — рынок слишком волатилен, direction = "flat".
 - Если старшие ТФ (htf_trends) единогласно против предлагаемого направления — снижай confidence минимум на 15.
@@ -226,6 +226,44 @@ def _build_user_prompt(
             ss = sentiment_summary_for_prompt(sentiment)
             if ss:
                 parts.append("\nSentiment:\n" + ss)
+        liquidations = extra.get("liquidations")
+        if liquidations:
+            parts_l = ["Давление ликвидаций (Binance Futures, 1h):"]
+            ratio = liquidations.get("taker_buy_sell_ratio", 1.0)
+            lbl = "покупатели доминируют" if ratio > 1.15 else "продавцы доминируют" if ratio < 0.85 else "баланс"
+            parts_l.append(f"  • Taker buy/sell ratio: {ratio:.4f} ({lbl})")
+            if "buy_pct" in liquidations:
+                parts_l.append(f"  • Покупки: {liquidations['buy_pct']}% / Продажи: {liquidations['sell_pct']}%")
+            if "avg_ratio_5h" in liquidations:
+                parts_l.append(f"  • Средний ratio за 5ч: {liquidations['avg_ratio_5h']:.4f}")
+            parts.append("\n" + "\n".join(parts_l))
+        corr = extra.get("correlation")
+        coin = extra.get("coin", "")
+        if corr and coin and coin != "BTC":
+            pairs = corr.get("pairs", [])
+            for p in pairs:
+                if p.get("coin") == coin:
+                    cv = p["value"]
+                    cl = "высокая" if abs(cv) > 0.8 else "средняя" if abs(cv) > 0.5 else "низкая"
+                    parts.append(f"\nКорреляция {coin}/BTC: {cv:.3f} ({cl}) — учти при анализе направления.")
+                    break
+        analytics = extra.get("analytics")
+        if analytics:
+            parts_a = ["Аналитические центры (Binance Futures):"]
+            if "funding_rate_pct" in analytics:
+                fr = analytics["funding_rate_pct"]
+                fr_label = "бычий уклон" if fr > 0.01 else "медвежий уклон" if fr < -0.01 else "нейтрально"
+                parts_a.append(f"  • Funding rate: {fr}% ({fr_label})")
+            if "open_interest" in analytics:
+                parts_a.append(f"  • Open interest: {analytics['open_interest']}")
+            if "long_short_ratio" in analytics:
+                ls = analytics["long_short_ratio"]
+                ls_label = "больше лонгов" if ls > 1.2 else "больше шортов" if ls < 0.8 else "баланс"
+                parts_a.append(
+                    f"  • Long/Short ratio: {ls:.2f} ({ls_label}) — лонги {analytics.get('long_account_pct', 50):.1f}% / шорты {analytics.get('short_account_pct', 50):.1f}%"
+                )
+            if len(parts_a) > 1:
+                parts.append("\n" + "\n".join(parts_a))
         strategy = extra.get("strategy_stats")
         if strategy:
             bs = backtest_summary_for_prompt(strategy)
@@ -237,9 +275,11 @@ def _build_user_prompt(
         " он-чейн метрики (для BTC: высокие комиссии и забитый мемпул — признак ажиотажа; низкие — спокойствия;"
         " для ETH: газ выше 50 gwei — высокий спрос, ниже 15 — затишье), свежие свечные паттерны,"
         " профиль объёма (POC/VAH/VAL — ключевые магнитные уровни), CVD-дивергенции,"
-        " multi-TF alignment (если score < 25 — снижай confidence), композитный sentiment"
+        " multi-TF alignment (если score < 25 — снижай confidence), композитный sentiment,"
+        " данные аналитических центров (funding rate: положительный = перевес лонгов, отрицательный = шортов;"
+        " L/S ratio > 1.5 — crowd слишком бычий, возможен разворот; < 0.7 — crowd медвежий),"
         " и историческую статистику стратегии (winrate / PF). Упомяни существенные факторы в narrative."
-        "\nИспользуй обязательные правила из system-prompt: проверь RR ≥ 1.5, направление SL/TP, ATR-фильтр,"
+        "\nИспользуй обязательные правила из system-prompt: проверь RR ≥ 1.7, направление SL/TP, ATR-фильтр,"
         " HTF-согласие и F&G. Если хоть одно условие не выполнено — direction = \"flat\" (даже если паттерн красивый)."
         " Сделай анализ и торговую идею. Ответь ТОЛЬКО JSON по указанной схеме."
     )
@@ -539,6 +579,11 @@ def _validate_signal(
         confidence = max(20, confidence - 10)
         notes.append("ADX слабый — трендовая идея с риском")
 
+    vol_ratio = float(summary.get("volume_ratio", 1.0))
+    if vol_ratio < 0.5:
+        confidence = max(20, confidence - 12)
+        notes.append(f"Объём ниже нормы (×{vol_ratio:.2f}) — сигнал слабый")
+
     rationale = sig.rationale
     if notes:
         rationale = (rationale + " " + "; ".join(notes)).strip()
@@ -643,9 +688,9 @@ def _gemini_analyze(
         return None
 
 
-TP1_RR_TARGET = 1.5
+TP1_RR_TARGET = 1.7
 TP2_RR_TARGET = 2.5
-TP1_RR_BAND = (1.3, 1.7)
+TP1_RR_BAND = (1.5, 2.0)
 TP2_RR_BAND = (2.0, 3.5)
 
 
@@ -659,7 +704,7 @@ def _round_price_by_ref(value: float, ref: float) -> float:
 
 
 def _enforce_rr_targets(signal: Signal) -> Signal:
-    """Post-process LLM/rules signal so TP1 lands inside RR band [1.3, 1.7] and TP2 inside [2.0, 3.5].
+    """Post-process LLM/rules signal so TP1 lands inside RR band [1.5, 2.0] and TP2 inside [2.0, 3.5].
 
     If the LLM returned values outside the band (or missing TP2), we recompute relative to entry+stop
     so the user always sees a trade idea with a sane reward/risk profile.

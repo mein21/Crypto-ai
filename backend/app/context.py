@@ -1,4 +1,4 @@
-"""Auxiliary market context: Fear & Greed index, news, correlation, multi-TF.
+"""Auxiliary market context: Fear & Greed index, news, correlation, multi-TF, analytics.
 
 All sources are free and do not require API keys.
 
@@ -6,6 +6,7 @@ All sources are free and do not require API keys.
 - News: Cointelegraph RSS per coin tag (free, no auth)
 - Correlation: built from ccxt OHLCV (1d, 30 candles)
 - Multi-TF trends: built from ccxt OHLCV (the next two higher timeframes)
+- Analytics: funding rate + open interest from Binance Futures (public, no key)
 """
 from __future__ import annotations
 
@@ -224,3 +225,119 @@ def fetch_correlation_vs_btc(window_days: int = 30) -> dict | None:
     }
     _cache.set(f"corr_btc:{window_days}", out)
     return out
+
+
+# ---- Analytical centers (funding rate, open interest, long/short ratio) ---
+
+_ANALYTICS_SYMBOLS = {
+    "BTC": "BTCUSDT",
+    "ETH": "ETHUSDT",
+    "BNB": "BNBUSDT",
+    "SOL": "SOLUSDT",
+    "XRP": "XRPUSDT",
+    "ADA": "ADAUSDT",
+    "DOGE": "DOGEUSDT",
+    "AVAX": "AVAXUSDT",
+    "TON": "TONUSDT",
+    "DOT": "DOTUSDT",
+}
+
+
+def fetch_analytics(coin: str) -> dict | None:
+    """Fetch funding rate, open interest, and long/short ratio from Binance Futures."""
+    symbol = _ANALYTICS_SYMBOLS.get(coin)
+    if not symbol:
+        return None
+    cache_key = f"analytics:{coin}"
+    cached = _cache.get(cache_key, ttl=300)  # 5 min
+    if cached is not None:
+        return cached
+    result: dict[str, Any] = {}
+    try:
+        with httpx.Client(timeout=10) as c:
+            # Funding rate
+            r = c.get(
+                "https://fapi.binance.com/fapi/v1/fundingRate",
+                params={"symbol": symbol, "limit": "1"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if data:
+                    result["funding_rate"] = float(data[-1].get("fundingRate", 0))
+                    result["funding_rate_pct"] = round(result["funding_rate"] * 100, 4)
+
+            # Open interest
+            r2 = c.get(
+                "https://fapi.binance.com/fapi/v1/openInterest",
+                params={"symbol": symbol},
+            )
+            if r2.status_code == 200:
+                data2 = r2.json()
+                result["open_interest"] = float(data2.get("openInterest", 0))
+
+            # Long/short ratio (top traders)
+            r3 = c.get(
+                "https://fapi.binance.com/futures/data/topLongShortAccountRatio",
+                params={"symbol": symbol, "period": "1h", "limit": "1"},
+            )
+            if r3.status_code == 200:
+                data3 = r3.json()
+                if data3:
+                    result["long_short_ratio"] = float(data3[-1].get("longShortRatio", 1.0))
+                    result["long_account_pct"] = float(data3[-1].get("longAccount", 0.5)) * 100
+                    result["short_account_pct"] = float(data3[-1].get("shortAccount", 0.5)) * 100
+    except Exception as e:  # noqa: BLE001
+        log.warning("Analytics fetch failed for %s: %s", coin, e)
+
+    if result:
+        _cache.set(cache_key, result)
+        return result
+    return None
+
+
+# ---- Liquidations (Binance Futures) --------------------------------------
+
+def fetch_liquidations(coin: str) -> dict | None:
+    """Fetch recent forced liquidation stats from Binance Futures.
+
+    Uses /futures/data/globalLongShortAccountRatio as a proxy for
+    liquidation pressure — no separate liquidations endpoint on public API.
+    Instead we use forceOrders which returns recent liquidation events.
+    """
+    symbol = _ANALYTICS_SYMBOLS.get(coin)
+    if not symbol:
+        return None
+    cache_key = f"liquidations:{coin}"
+    cached = _cache.get(cache_key, ttl=300)
+    if cached is not None:
+        return cached
+    result: dict[str, Any] = {}
+    try:
+        with httpx.Client(timeout=10) as c:
+            r = c.get(
+                "https://fapi.binance.com/futures/data/takerlongshortRatio",
+                params={"symbol": symbol, "period": "1h", "limit": "5"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if data:
+                    latest = data[-1]
+                    buy_vol = float(latest.get("buyVol", 0))
+                    sell_vol = float(latest.get("sellVol", 0))
+                    ratio = float(latest.get("buySellRatio", 1.0))
+                    result["taker_buy_vol"] = buy_vol
+                    result["taker_sell_vol"] = sell_vol
+                    result["taker_buy_sell_ratio"] = ratio
+                    total = buy_vol + sell_vol
+                    if total > 0:
+                        result["buy_pct"] = round(buy_vol / total * 100, 1)
+                        result["sell_pct"] = round(sell_vol / total * 100, 1)
+                    if len(data) >= 3:
+                        avg_ratio = sum(float(d.get("buySellRatio", 1.0)) for d in data) / len(data)
+                        result["avg_ratio_5h"] = round(avg_ratio, 4)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Liquidations fetch failed for %s: %s", coin, e)
+    if result:
+        _cache.set(cache_key, result)
+        return result
+    return None

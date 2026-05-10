@@ -2282,3 +2282,262 @@ h1 {
   font-size: 12px;
   color: var(--text);
 }
+
+/* --- Failed trades widget ------------------------------------------------ */
+
+.failed-trades-widget {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-soft);
+  cursor: default;
+  user-select: none;
+  transition: all 0.3s var(--easing);
+}
+.failed-trades-widget:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-strong);
+}
+.failed-trades-widget.warning {
+  border-color: var(--tone-warn);
+  background: var(--tone-warn-bg);
+}
+.failed-trades-widget.danger {
+  border-color: var(--tone-bear);
+  background: var(--tone-bear-bg);
+  animation: pulse-danger 1.5s ease-in-out infinite;
+}
+@keyframes pulse-danger {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.failed-trades-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.failed-trades-widget.warning .failed-trades-icon {
+  color: var(--tone-warn);
+}
+.failed-trades-widget.danger .failed-trades-icon {
+  color: var(--tone-bear);
+}
+.failed-trades-counter {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.02em;
+}
+
+/* --- Lockout overlay ----------------------------------------------------- */
+
+.lockout-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: lockout-fade-in 0.5s var(--easing);
+}
+.lockout-overlay[hidden] {
+  display: none;
+}
+@keyframes lockout-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.lockout-content {
+  text-align: center;
+  max-width: 420px;
+  padding: 40px 32px;
+  border-radius: var(--radius-xl);
+  background: var(--bg-surface-strong);
+  border: 1px solid var(--border-soft);
+  box-shadow: 0 40px 80px -20px rgba(0,0,0,0.8);
+}
+.lockout-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+  animation: lockout-shake 0.6s ease;
+}
+@keyframes lockout-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-8px); }
+  75% { transform: translateX(8px); }
+}
+.lockout-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+.lockout-msg {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+.lockout-timer {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 16px;
+  color: var(--tone-warn);
+  margin-bottom: 24px;
+}
+.lockout-game-wrap {
+  margin-top: 20px;
+}
+.lockout-game-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+#snake-canvas {
+  display: block;
+  margin: 0 auto 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+  background: #0a0a0a;
+}
+:root[data-theme="light"] #snake-canvas {
+  background: #f0f0f0;
+  border-color: var(--border-strong);
+}
+.snake-score {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.snake-start-btn {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  padding: 10px 24px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.snake-start-btn:hover {
+  opacity: 0.85;
+}
+
+/* --- Dashboard grid --- */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+@media (max-width: 600px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.dash-tile {
+  background: var(--bg-surface-strong);
+  border-radius: var(--radius-sm);
+  padding: 12px 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  user-select: none;
+}
+.dash-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+.dash-tile:active {
+  transform: scale(0.97);
+}
+.dash-coin {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.dash-price {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.dashboard-loading {
+  text-align: center;
+  padding: 20px;
+  opacity: 0.6;
+}
+
+/* --- Trade History --- */
+.history-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.stat-chip {
+  background: var(--bg-surface-strong);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 60px;
+}
+.stat-chip.long { background: rgba(0, 200, 83, 0.12); }
+.stat-chip.short { background: rgba(255, 82, 82, 0.12); }
+.stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+}
+.stat-value {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 600;
+  font-size: 14px;
+}
+.history-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.history-row:last-child { border-bottom: none; }
+.history-row.win { border-left: 3px solid var(--green); padding-left: 8px; }
+.history-row.loss { border-left: 3px solid var(--red); padding-left: 8px; }
+.history-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.history-coin { font-weight: 700; }
+.history-dir.long { color: var(--green); }
+.history-dir.short { color: var(--red); }
+.history-tf { opacity: 0.6; font-size: 11px; }
+.history-hit { font-size: 12px; }
+.history-pnl { font-family: "JetBrains Mono", monospace; font-weight: 600; }
+.history-date { opacity: 0.5; font-size: 11px; margin-left: auto; }
+.history-note-wrap { margin-top: 4px; }
+.history-note-input {
+  width: 100%;
+  background: var(--bg-surface-strong);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 11px;
+  color: inherit;
+  font-family: inherit;
+}
+.history-note-input::placeholder { opacity: 0.4; }
+.history-more { text-align: center; padding: 8px; font-size: 12px; }
+@media (max-width: 600px) {
+  .stat-chip { min-width: 50px; padding: 4px 8px; }
+  .stat-value { font-size: 12px; }
+  .history-main { font-size: 12px; }
+}
