@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .alignment import compute_alignment
+from .analytics import fetch_analytics, analytics_summary_for_prompt
 from .backtest import walk_forward_backtest
 from .chart import render_chart_b64
 from .context import (
@@ -146,6 +147,13 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         log.warning("Walk-forward backtest failed: %s", e)
         strategy_raw = None
 
+    # Analytics center: long/short ratio, funding rate, OI, top traders
+    try:
+        analytics_raw = fetch_analytics(req.coin)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Analytics fetch failed: %s", e)
+        analytics_raw = {}
+
     extra_context = {
         "htf_trends": htf_raw,
         "fear_greed": fng_raw,
@@ -158,6 +166,7 @@ def analyze_endpoint(req: AnalyzeRequest) -> AnalyzeResponse:
         "alignment": alignment_raw,
         "sentiment": sentiment_raw,
         "strategy_stats": strategy_raw,
+        "analytics": analytics_raw,
     }
     analysis = analyze(req.coin, req.timeframe, summary, extra_context=extra_context)
     analysis.patterns = [CandlePattern(**p) for p in patterns_raw]
@@ -273,13 +282,18 @@ def best_deal_endpoint(req: BestDealRequest) -> BestDealResponse:
             except Exception as e:  # noqa: BLE001
                 log.warning("Walk-forward backtest failed (best-deal): %s", e)
                 strategy_raw = None
+            try:
+                analytics_raw = fetch_analytics(coin)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Analytics fetch failed (best-deal): %s", e)
+                analytics_raw = {}
             extra_context = {
                 "htf_trends": htf_raw, "fear_greed": fng_raw,
                 "news_titles": [n.get("title_ru") or n.get("title", "") for n in news_raw][:5],
                 "onchain": onchain_raw, "coin": coin, "patterns": patterns_raw,
                 "volume_profile": vp_raw, "order_flow": flow_raw,
                 "alignment": alignment_raw, "sentiment": sentiment_raw,
-                "strategy_stats": strategy_raw,
+                "strategy_stats": strategy_raw, "analytics": analytics_raw,
             }
             analysis = analyze(coin, req.timeframe, summary, extra_context=extra_context)
             analysis.patterns = [CandlePattern(**p) for p in patterns_raw]

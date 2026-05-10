@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from .alignment import alignment_summary_for_prompt
+from .analytics import analytics_summary_for_prompt
 from .backtest import backtest_summary_for_prompt
 from .data import get_market_precision
 from .order_flow import order_flow_summary_for_prompt
@@ -77,6 +78,8 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
 - Если итоговый confidence < 45 — ставь direction = "flat". Лучше пропустить сделку, чем войти с низкой уверенностью.
 - Предпочитай flat вместо слабых сигналов. Убыток от пропущенной сделки = 0, убыток от плохой сделки = реальные деньги.
 - Сильные разворотные паттерны у уровней (Engulfing, Morning/Evening Star, Hammer/Shooting Star у S/R, сила ≥2) — серьёзный аргумент. Doji/Spinning Top сами по себе — повод снизить уверенность, не основание для входа.
+- Данные аналитического центра (если есть): funding rate < 0 — бычий сигнал (шорты платят лонгам); > 0.05% — рынок перегрет. Long/Short ratio топ-трейдеров показывает настроение профессионалов. OI рост + направленное движение = подтверждение тренда.
+- Когда индикаторы согласованы (EMA выстроены, MACD подтверждает, RSI в зоне, ADX сильный) — повышай confidence. Не бойся давать 65-80% при явной картине.
 - Не используй markdown и эмодзи. Возвращай ТОЛЬКО валидный JSON по схеме.
 
 Схема ответа:
@@ -248,14 +251,20 @@ def _build_user_prompt(
             bs = backtest_summary_for_prompt(strategy)
             if bs:
                 parts.append("\nWalk-forward (rules):\n" + bs)
+        analytics = extra.get("analytics")
+        if analytics:
+            ans = analytics_summary_for_prompt(analytics)
+            if ans:
+                parts.append("\nАналитический центр (биржевые данные):\n" + ans)
     parts.append(
         "\nУчти контекст старших ТФ (если они идут против анализируемого ТФ — снижай уверенность),"
         " настроение рынка (F&G < 25 — экстремальный страх, > 75 — жадность), заголовки новостей,"
         " он-чейн метрики (для BTC: высокие комиссии и забитый мемпул — признак ажиотажа; низкие — спокойствия;"
         " для ETH: газ выше 50 gwei — высокий спрос, ниже 15 — затишье), свежие свечные паттерны,"
         " профиль объёма (POC/VAH/VAL — ключевые магнитные уровни), CVD-дивергенции,"
-        " multi-TF alignment (если score < 25 — снижай confidence), композитный sentiment"
-        " и историческую статистику стратегии (winrate / PF). Упомяни существенные факторы в narrative."
+        " multi-TF alignment (если score < 25 — снижай confidence), композитный sentiment,"
+        " историческую статистику стратегии (winrate / PF) и данные аналитического центра"
+        " (long/short ratio, funding rate, OI, позиции топ-трейдеров). Упомяни существенные факторы в narrative."
         "\nИспользуй обязательные правила из system-prompt: проверь RR ≥ 1.5, направление SL/TP, ATR-фильтр,"
         " HTF-согласие и F&G. Если хоть одно условие не выполнено — direction = \"flat\" (даже если паттерн красивый)."
         " Сделай анализ и торговую идею. Ответь ТОЛЬКО JSON по указанной схеме."
@@ -526,15 +535,28 @@ def _validate_signal(
             rr=rr,
         )
 
-    # HTF confidence penalty — when all of the higher TFs disagree.
+    # --- Confidence boosters (multi-factor agreement for LLM path) ---
     confidence = sig.confidence
+
+    # ADX strong trend bonus
+    adx_pre = float(summary.get("adx", 0.0))
+    if adx_pre >= 25:
+        confidence = min(90, confidence + 6)
+        notes.append("ADX сильный тренд")
+    elif adx_pre >= 20:
+        confidence = min(90, confidence + 3)
+
+    # HTF agreement: boost when aligned, penalize when opposed
     htf = (extra or {}).get("htf_trends") or []
     if htf:
         opposite_word = "нисход" if direction == "long" else "восход"
         agree_word = "восход" if direction == "long" else "нисход"
         opposed = sum(1 for h in htf if opposite_word in str(h.get("trend", "")))
         agreed = sum(1 for h in htf if agree_word in str(h.get("trend", "")))
-        if opposed >= max(2, len(htf) - 1) and agreed == 0:
+        if agreed >= max(2, len(htf) - 1) and opposed == 0:
+            confidence = min(90, confidence + 8)
+            notes.append("HTF единогласно подтверждают направление")
+        elif opposed >= max(2, len(htf) - 1) and agreed == 0:
             confidence = max(20, confidence - 15)
             notes.append("HTF единогласно против — confidence снижен")
 
@@ -907,25 +929,50 @@ def _rules_based_fallback(
         rationale_parts.append("Нет согласованных сигналов — ждём подтверждения от уровней.")
 
     # --- Confidence boosters (multi-factor agreement) -------------------------
+    # ADX strong trend bonus
+    if direction != "flat" and adx_v >= 25:
+        confidence += 8
+        rationale_parts.append(f"ADX {adx_v:.0f} — сильный тренд.")
+    elif direction != "flat" and adx_v >= 20:
+        confidence += 4
+        rationale_parts.append(f"ADX {adx_v:.0f} — умеренный тренд.")
+
+    # EMA alignment bonus
+    ema_fast = float(summary.get("ema_fast", 0))
+    ema_slow = float(summary.get("ema_slow", 0))
+    ema_long = float(summary.get("ema_long", 0))
+    if direction == "long" and ema_fast > ema_slow > ema_long > 0:
+        confidence += 8
+        rationale_parts.append("EMA полностью выстроены вверх (20>50>200).")
+    elif direction == "short" and 0 < ema_fast < ema_slow < ema_long:
+        confidence += 8
+        rationale_parts.append("EMA полностью выстроены вниз (20<50<200).")
+
     if direction == "long":
-        if macd_state in {"бычий", "бычий-разгон", "разворот вверх"}:
+        if macd_state in {"бычий", "бычий-разгон"}:
+            confidence += 8
+            rationale_parts.append("MACD подтверждает бычий импульс.")
+        elif macd_state == "разворот вверх":
             confidence += 5
-            rationale_parts.append("MACD подтверждает бычий сигнал.")
-        if rsi_v < 45:
-            confidence += 5
-            rationale_parts.append("RSI в зоне роста (ниже 45).")
+            rationale_parts.append("MACD разворачивается вверх.")
+        if 30 <= rsi_v < 45:
+            confidence += 6
+            rationale_parts.append("RSI в зоне роста (30-45).")
         if close <= bb_lower + (bb_upper - bb_lower) * 0.25:
-            confidence += 5
+            confidence += 6
             rationale_parts.append("Цена у нижней Боллинджера — потенциал отскока.")
     elif direction == "short":
-        if macd_state in {"медвежий", "медвежий-разгон", "разворот вниз"}:
+        if macd_state in {"медвежий", "медвежий-разгон"}:
+            confidence += 8
+            rationale_parts.append("MACD подтверждает медвежий импульс.")
+        elif macd_state == "разворот вниз":
             confidence += 5
-            rationale_parts.append("MACD подтверждает медвежий сигнал.")
-        if rsi_v > 55:
-            confidence += 5
-            rationale_parts.append("RSI в зоне снижения (выше 55).")
+            rationale_parts.append("MACD разворачивается вниз.")
+        if 55 < rsi_v <= 70:
+            confidence += 6
+            rationale_parts.append("RSI в зоне снижения (55-70).")
         if close >= bb_lower + (bb_upper - bb_lower) * 0.75:
-            confidence += 5
+            confidence += 6
             rationale_parts.append("Цена у верхней Боллинджера — потенциал отката.")
 
     # HTF agreement gate (C5) — the deterministic path now sees the same
@@ -1027,25 +1074,74 @@ def _rules_based_fallback(
         confidence = max(15, confidence - 12)
         rationale_parts.append("Старшие ТФ согласованы вверх — шорт против тренда.")
 
-    # Composite sentiment — extreme readings nudge confidence
+    # Composite sentiment — boost when aligned, penalize when against
     sentiment = (extra or {}).get("sentiment") or {}
     sent_score = float(sentiment.get("score", 50) or 50)
-    if direction == "long" and sent_score <= 25:
+    if direction == "long" and sent_score >= 65:
+        confidence = min(90, confidence + 6)
+        rationale_parts.append("Бычий sentiment поддерживает лонг.")
+    elif direction == "long" and sent_score <= 25:
         confidence = max(15, confidence - 5)
         rationale_parts.append("Экстремальный медвежий sentiment ослабляет лонг.")
+    elif direction == "short" and sent_score <= 35:
+        confidence = min(90, confidence + 6)
+        rationale_parts.append("Медвежий sentiment поддерживает шорт.")
     elif direction == "short" and sent_score >= 75:
         confidence = max(15, confidence - 5)
         rationale_parts.append("Экстремальный бычий sentiment ослабляет шорт.")
 
-    # Walk-forward backtest realism check
+    # Walk-forward backtest — boost for strong historical performance, penalize weak
     strategy = (extra or {}).get("strategy_stats") or {}
     pf = float(strategy.get("profit_factor", 0) or 0)
     total_trades = int(strategy.get("total_trades", 0) or 0)
-    if direction != "flat" and total_trades >= 5 and pf < 0.7:
-        confidence = max(15, confidence - 8)
-        rationale_parts.append(
-            f"Историческая стратегия слабо работала (PF {pf}, сделок {total_trades})."
-        )
+    if direction != "flat" and total_trades >= 5:
+        if pf >= 1.5:
+            confidence = min(90, confidence + 8)
+            rationale_parts.append(f"Стратегия исторически прибыльна (PF {pf:.1f}).")
+        elif pf >= 1.0:
+            confidence = min(90, confidence + 4)
+            rationale_parts.append(f"Стратегия исторически положительна (PF {pf:.1f}).")
+        elif pf < 0.7:
+            confidence = max(15, confidence - 8)
+            rationale_parts.append(
+                f"Историческая стратегия слабо работала (PF {pf:.1f}, сделок {total_trades})."
+            )
+
+    # Analytics center data: funding rate, top traders, OI
+    analytics = (extra or {}).get("analytics") or {}
+    funding = analytics.get("funding_rate") or {}
+    top_traders = analytics.get("top_traders") or {}
+    oi_data = analytics.get("open_interest") or {}
+
+    if direction != "flat" and funding:
+        fr_rate = float(funding.get("rate", 0))
+        if direction == "long" and fr_rate < -0.01:
+            confidence = min(90, confidence + 6)
+            rationale_parts.append("Отрицательный funding rate — бычий сигнал.")
+        elif direction == "long" and fr_rate > 0.05:
+            confidence = max(20, confidence - 6)
+            rationale_parts.append("Высокий funding rate — рынок перегрет для лонга.")
+        elif direction == "short" and fr_rate > 0.05:
+            confidence = min(90, confidence + 6)
+            rationale_parts.append("Высокий funding rate — медвежий сигнал.")
+        elif direction == "short" and fr_rate < -0.01:
+            confidence = max(20, confidence - 6)
+            rationale_parts.append("Отрицательный funding rate — рынок не готов к шорту.")
+
+    if direction != "flat" and top_traders:
+        tt_bias = top_traders.get("bias", "нейтральный")
+        if direction == "long" and tt_bias == "бычий":
+            confidence = min(90, confidence + 5)
+            rationale_parts.append("Топ-трейдеры в лонгах — подтверждение.")
+        elif direction == "short" and tt_bias == "медвежий":
+            confidence = min(90, confidence + 5)
+            rationale_parts.append("Топ-трейдеры в шортах — подтверждение.")
+
+    if direction != "flat" and oi_data:
+        oi_change = float(oi_data.get("change_pct", 0))
+        if direction == "long" and oi_change > 5:
+            confidence = min(90, confidence + 4)
+            rationale_parts.append("OI растёт — интерес к рынку подтверждает тренд.")
 
     # Bollinger Band squeeze penalty
     if direction != "flat" and bb_width > 0 and bb_width < BB_SQUEEZE_WIDTH:
