@@ -35,6 +35,19 @@ MIN_RR = 1.5
 # entry and let the user wait for things to calm down.
 MAX_ATR_PCT = 8.0
 
+# Minimum confidence to publish a directional (non-flat) signal.
+# Below this threshold we downgrade to flat — avoids low-quality trades
+# that accumulate losses over time.
+MIN_DIRECTIONAL_CONFIDENCE = 45
+
+# ADX below this value means effectively no trend — directional entries
+# become unreliable and whipsaw-prone.
+ADX_FLAT_THRESHOLD = 15
+
+# Bollinger Band width threshold — very narrow BB indicates a squeeze;
+# breakout direction is unpredictable, so we penalize confidence.
+BB_SQUEEZE_WIDTH = 0.02  # 2% of price
+
 SYSTEM_PROMPT = """Ты — опытный криптотрейдер и технический аналитик. Твоя задача:
 1. Принять JSON со сводкой технических индикаторов и уровней.
 2. Выдать структурированный анализ на русском языке.
@@ -57,8 +70,12 @@ SYSTEM_PROMPT = """Ты — опытный криптотрейдер и тех�
 - Если ATR > 8% от цены — рынок слишком волатилен, direction = "flat".
 - Если старшие ТФ (htf_trends) единогласно против предлагаемого направления — снижай confidence минимум на 15.
 - Fear & Greed > 80 → не открывай long; < 20 → не открывай short (оба эти диапазона — крайности).
-- ADX < 18 при попытке трендовой идеи — снижай confidence минимум на 10.
+- ADX < 18 при попытке трендовой идеи — снижай confidence минимум на 10. ADX < 15 — direction = "flat" (тренда нет, вход опасен).
+- Если Bollinger Band ширина < 2% от цены — сжатие, направление пробоя непредсказуемо. Снижай confidence на 15 или ставь flat.
+- RSI > 75 — не открывай long (перекупленность). RSI < 25 — не открывай short (перепроданность).
 - confidence — целое 0..100. Если direction="flat" — confidence ≤ 35.
+- Если итоговый confidence < 45 — ставь direction = "flat". Лучше пропустить сделку, чем войти с низкой уверенностью.
+- Предпочитай flat вместо слабых сигналов. Убыток от пропущенной сделки = 0, убыток от плохой сделки = реальные деньги.
 - Сильные разворотные паттерны у уровней (Engulfing, Morning/Evening Star, Hammer/Shooting Star у S/R, сила ≥2) — серьёзный аргумент. Doji/Spinning Top сами по себе — повод снизить уверенность, не основание для входа.
 - Не используй markdown и эмодзи. Возвращай ТОЛЬКО валидный JSON по схеме.
 
@@ -535,9 +552,54 @@ def _validate_signal(
             notes.append("F&G в зоне страха — short с риском")
 
     adx_v = float(summary.get("adx", 0.0))
-    if adx_v < 18:
+    if adx_v < ADX_FLAT_THRESHOLD:
+        flat = _flatten(f"ADX {adx_v:.0f} < {ADX_FLAT_THRESHOLD} — тренда нет, вход опасен")
+        return Signal(
+            direction=flat["direction"],
+            entry=flat["entry"],
+            stop_loss=flat["stop_loss"],
+            take_profit_1=flat["take_profit_1"],
+            take_profit_2=flat["take_profit_2"],
+            confidence=min(confidence, flat["confidence_cap"]),
+            rationale=(sig.rationale + " " + flat["reason"]).strip(),
+            rr=rr,
+        )
+    elif adx_v < 18:
         confidence = max(20, confidence - 10)
         notes.append("ADX слабый — трендовая идея с риском")
+
+    # Bollinger Band squeeze: very narrow band means unpredictable breakout.
+    bb_width = float(summary.get("bb_width", 0.0))
+    if bb_width > 0 and bb_width < BB_SQUEEZE_WIDTH:
+        confidence = max(20, confidence - 15)
+        notes.append(f"BB сжатие ({bb_width:.3f}) — направление пробоя непредсказуемо")
+
+    # RSI extremes: don't long in overbought, don't short in oversold.
+    rsi_v = float(summary.get("rsi", 50.0))
+    if direction == "long" and rsi_v > 75:
+        confidence = max(20, confidence - 15)
+        notes.append(f"RSI {rsi_v:.0f} — перекупленность, лонг рискован")
+    elif direction == "short" and rsi_v < 25:
+        confidence = max(20, confidence - 15)
+        notes.append(f"RSI {rsi_v:.0f} — перепроданность, шорт рискован")
+
+    # Final minimum confidence gate: if confidence is too low after all
+    # adjustments, downgrade to flat — weak signals accumulate losses.
+    if confidence < MIN_DIRECTIONAL_CONFIDENCE:
+        notes.append(f"confidence {confidence} < {MIN_DIRECTIONAL_CONFIDENCE} — сигнал слишком слабый")
+        rationale = sig.rationale
+        if notes:
+            rationale = (rationale + " " + "; ".join(notes)).strip()
+        return Signal(
+            direction="flat",
+            entry=None,
+            stop_loss=None,
+            take_profit_1=None,
+            take_profit_2=None,
+            confidence=min(confidence, 35),
+            rationale=rationale,
+            rr=rr,
+        )
 
     rationale = sig.rationale
     if notes:
@@ -740,15 +802,19 @@ def _rules_based_fallback(
     bb_lower = float(summary["bb_lower"])
     bb_upper = float(summary["bb_upper"])
 
+    bb_width = float(summary.get("bb_width", 0.0))
+
     bullish = (
         trend == "восходящий"
         and macd_state in {"бычий", "бычий-разгон", "разворот вверх", "нейтрально"}
         and rsi_v < 72
+        and adx_v >= ADX_FLAT_THRESHOLD
     )
     bearish = (
         trend == "нисходящий"
         and macd_state in {"медвежий", "медвежий-разгон", "разворот вниз", "нейтрально"}
         and rsi_v > 28
+        and adx_v >= ADX_FLAT_THRESHOLD
     )
 
     # ATR-pct sanity gate (C7) — skip the directional logic entirely when
@@ -759,7 +825,7 @@ def _rules_based_fallback(
         )
     elif bullish and support and resistance:
         direction = "long"
-        confidence = 55
+        confidence = 50
         dist_to_resistance = resistance[0] - close
         dist_to_support = close - support[0]
         if 0 < dist_to_resistance <= 0.4 * atr_v and len(resistance) > 1:
@@ -799,7 +865,7 @@ def _rules_based_fallback(
             rationale_parts.append("EMA-стек вверх, MACD не разворачивается, RSI без перегрева.")
     elif bearish and support and resistance:
         direction = "short"
-        confidence = 55
+        confidence = 50
         dist_to_support = close - support[0]
         dist_to_resistance = resistance[0] - close
         if 0 < dist_to_support <= 0.4 * atr_v and len(support) > 1:
@@ -880,11 +946,21 @@ def _rules_based_fallback(
             value = int(fng.get("value", 50))
         except (TypeError, ValueError):
             value = 50
-        if direction == "long" and value >= 80:
-            confidence = max(20, confidence - 10)
+        if direction == "long" and value >= 85:
+            rationale_parts.append("F&G экстремальная жадность — отказ от лонга.")
+            direction = "flat"
+            entry = stop = tp1 = tp2 = None
+            confidence = min(confidence, 30)
+        elif direction == "long" and value >= 75:
+            confidence = max(20, confidence - 12)
             rationale_parts.append("F&G в зоне жадности — лонг рискован.")
-        elif direction == "short" and value <= 20:
-            confidence = max(20, confidence - 10)
+        elif direction == "short" and value <= 15:
+            rationale_parts.append("F&G экстремальный страх — отказ от шорта.")
+            direction = "flat"
+            entry = stop = tp1 = tp2 = None
+            confidence = min(confidence, 30)
+        elif direction == "short" and value <= 25:
+            confidence = max(20, confidence - 12)
             rationale_parts.append("F&G в зоне страха — шорт рискован.")
 
     # Pattern adjustment
@@ -971,7 +1047,29 @@ def _rules_based_fallback(
             f"Историческая стратегия слабо работала (PF {pf}, сделок {total_trades})."
         )
 
+    # Bollinger Band squeeze penalty
+    if direction != "flat" and bb_width > 0 and bb_width < BB_SQUEEZE_WIDTH:
+        confidence = max(20, confidence - 15)
+        rationale_parts.append(f"BB сжатие ({bb_width:.3f}) — направление пробоя непредсказуемо.")
+
+    # RSI extreme penalty
+    if direction == "long" and rsi_v > 75:
+        confidence = max(20, confidence - 15)
+        rationale_parts.append(f"RSI {rsi_v:.0f} — перекупленность, лонг рискован.")
+    elif direction == "short" and rsi_v < 25:
+        confidence = max(20, confidence - 15)
+        rationale_parts.append(f"RSI {rsi_v:.0f} — перепроданность, шорт рискован.")
+
     confidence = min(90, confidence)
+
+    # Final minimum confidence gate: weak signals → flat
+    if direction != "flat" and confidence < MIN_DIRECTIONAL_CONFIDENCE:
+        rationale_parts.append(
+            f"Итоговый confidence {confidence} < {MIN_DIRECTIONAL_CONFIDENCE} — сигнал слишком слабый для входа."
+        )
+        direction = "flat"
+        entry = stop = tp1 = tp2 = None
+        confidence = min(confidence, 35)
 
     indicators_summary = {
         "rsi": f"{rsi_v:.1f} ({summary['rsi_state']})",

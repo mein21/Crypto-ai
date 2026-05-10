@@ -18,107 +18,6 @@
   let pollTimer = null;
   const POLL_INTERVAL = 10000;
 
-  // --- Balance & Risk management ---
-  let balance = loadBalance();
-  let riskPercent = loadRiskPercent();
-
-  function loadBalance() {
-    try {
-      const v = parseFloat(localStorage.getItem("crypto_balance"));
-      return isNaN(v) ? null : v;
-    } catch { return null; }
-  }
-
-  function saveBalance(val) {
-    balance = val;
-    try { localStorage.setItem("crypto_balance", String(val)); } catch {}
-    renderBalanceDisplay();
-  }
-
-  function loadRiskPercent() {
-    try {
-      const v = parseFloat(localStorage.getItem("crypto_risk_pct"));
-      return isNaN(v) || v <= 0 ? 1 : v;
-    } catch { return 1; }
-  }
-
-  function saveRiskPercent(val) {
-    riskPercent = val;
-    try { localStorage.setItem("crypto_risk_pct", String(val)); } catch {}
-  }
-
-  function renderBalanceDisplay() {
-    const el = $("balance-value");
-    if (balance == null) {
-      el.textContent = "Ввести";
-    } else {
-      el.textContent = balance.toLocaleString("ru-RU", { maximumFractionDigits: 2 }) + " USDT";
-    }
-  }
-
-  function openBalanceEdit() {
-    $("balance-display").hidden = true;
-    $("balance-edit").hidden = false;
-    $("balance-overlay").classList.add("active");
-    const inp = $("balance-input");
-    inp.value = balance != null ? balance : "";
-    $("risk-input").value = riskPercent;
-    inp.focus();
-  }
-
-  function closeBalanceEdit() {
-    $("balance-edit").hidden = true;
-    $("balance-display").hidden = false;
-    $("balance-overlay").classList.remove("active");
-  }
-
-  function commitBalanceEdit() {
-    const val = parseFloat($("balance-input").value);
-    const risk = parseFloat($("risk-input").value);
-    if (!isNaN(val) && val >= 0) saveBalance(val);
-    if (!isNaN(risk) && risk > 0 && risk <= 100) saveRiskPercent(risk);
-    closeBalanceEdit();
-  }
-
-  const TAKER_FEE = 0.0005; // Binance Futures taker 0.05%
-
-  function calcPositionSize(entry, stopLoss, tp1, tp2) {
-    if (balance == null || balance <= 0) return null;
-    if (entry == null || stopLoss == null || entry === stopLoss) return null;
-    const riskAmount = balance * riskPercent / 100;
-    const slDistance = Math.abs(entry - stopLoss);
-    const positionSizeCoins = riskAmount / slDistance;
-    const positionValueUsdt = positionSizeCoins * entry;
-    const leverage = positionValueUsdt > balance ? positionValueUsdt / balance : 1;
-    const commissionOpen = positionValueUsdt * TAKER_FEE;
-    const commissionClose = positionValueUsdt * TAKER_FEE;
-    const commissionTotal = commissionOpen + commissionClose;
-    let tp1Profit = null, tp1Net = null, tp2Profit = null, tp2Net = null;
-    if (tp1 != null) {
-      tp1Profit = positionSizeCoins * Math.abs(tp1 - entry);
-      tp1Net = tp1Profit - commissionTotal;
-    }
-    if (tp2 != null) {
-      tp2Profit = positionSizeCoins * Math.abs(tp2 - entry);
-      tp2Net = tp2Profit - commissionTotal;
-    }
-    return { riskAmount, positionSizeCoins, positionValueUsdt, slDistance, leverage, commissionTotal, tp1Profit, tp1Net, tp2Profit, tp2Net };
-  }
-
-  function updateBalanceOnHit(watch, hitType, hitPrice) {
-    if (balance == null) return;
-    const posInfo = calcPositionSize(watch.entry, watch.stop_loss, watch.take_profit_1, watch.take_profit_2);
-    if (!posInfo) return;
-
-    if (hitType === "SL") {
-      saveBalance(Math.max(0, balance - posInfo.riskAmount - posInfo.commissionTotal));
-    } else if (hitType === "TP1" && posInfo.tp1Net != null) {
-      saveBalance(balance + posInfo.tp1Net);
-    } else if (hitType === "TP2" && posInfo.tp2Net != null) {
-      saveBalance(balance + posInfo.tp2Net);
-    }
-  }
-
   const $ = (id) => document.getElementById(id);
 
   function inferDevApiBase() {
@@ -783,8 +682,6 @@
 
     const idea = $("trade-idea");
     idea.innerHTML = "";
-    const oldRisk = idea.parentElement.querySelector(".risk-info");
-    if (oldRisk) oldRisk.remove();
     const rr = (target) => {
       if (
         sig.entry == null ||
@@ -835,53 +732,7 @@
       idea.appendChild(vEl);
     });
 
-    // Risk management: position size calculation
-    const tp2ForCalc = isLimit ? null : sig.take_profit_2;
-    const posInfo = calcPositionSize(sig.entry, sig.stop_loss, sig.take_profit_1, tp2ForCalc);
-    if (posInfo && sig.direction && sig.direction !== "flat") {
-      const riskDiv = document.createElement("div");
-      riskDiv.className = "kv risk-info";
-      const leverageLabel = posInfo.leverage > 1 ? ` (плечо ×${posInfo.leverage.toFixed(1)})` : "";
-      const riskRows = [
-        ["Риск на сделку", `${fmtPrice(posInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
-        ["Размер позиции", `${posInfo.positionSizeCoins.toFixed(6)} ${analysis.coin}`, ""],
-        ["Стоимость позиции", `${fmtPrice(posInfo.positionValueUsdt)} USDT${leverageLabel}`, "warn"],
-        ["Комиссия (≈)", `${fmtPrice(posInfo.commissionTotal)} USDT`, "short"],
-      ];
-      if (posInfo.tp1Profit != null) {
-        const netCls = posInfo.tp1Net > 0 ? "long" : "short";
-        riskRows.push(["Профит при TP1", `+${fmtPrice(posInfo.tp1Profit)} USDT`, "long"]);
-        riskRows.push(["Чистый профит TP1", `${posInfo.tp1Net >= 0 ? "+" : ""}${fmtPrice(posInfo.tp1Net)} USDT`, netCls]);
-      }
-      if (posInfo.tp2Profit != null) {
-        const netCls = posInfo.tp2Net > 0 ? "long" : "short";
-        riskRows.push(["Профит при TP2", `+${fmtPrice(posInfo.tp2Profit)} USDT`, "long"]);
-        riskRows.push(["Чистый профит TP2", `${posInfo.tp2Net >= 0 ? "+" : ""}${fmtPrice(posInfo.tp2Net)} USDT`, netCls]);
-      }
-      riskRows.forEach(([k, v, cls]) => {
-        const kEl = document.createElement("div");
-        kEl.className = "k";
-        kEl.textContent = k;
-        const vEl = document.createElement("div");
-        vEl.className = "v " + (cls || "");
-        vEl.textContent = v;
-        riskDiv.appendChild(kEl);
-        riskDiv.appendChild(vEl);
-      });
-      const bestNet = posInfo.tp1Net != null ? posInfo.tp1Net : posInfo.tp2Net;
-      if (bestNet != null && bestNet <= 0) {
-        const warn = document.createElement("div");
-        warn.className = "risk-warn-negative";
-        warn.textContent = "⚠ Комиссия съедает профит. Рекомендуется увеличить баланс или использовать лимитные ордера (комиссия ×2.5 ниже).";
-        riskDiv.appendChild(warn);
-      }
-      idea.parentElement.appendChild(riskDiv);
-    }
-
     $("rationale").textContent = sig.rationale || "";
-
-    const existingRiskInfo = idea.parentElement.querySelector(".risk-info");
-    // risk-info already appended above, no duplicates needed
     const existingTrackBtn = idea.parentElement.querySelector(".track-btn");
     if (existingTrackBtn) existingTrackBtn.remove();
     if (sig.direction && sig.direction !== "flat" && sig.entry != null && sig.stop_loss != null) {
@@ -1025,51 +876,6 @@
       main.appendChild(kEl);
       main.appendChild(vEl);
     });
-
-    // Risk management for best deal
-    const bdTp2ForCalc = bdIsLimit ? null : best.take_profit_2;
-    const bdPosInfo = calcPositionSize(best.entry, best.stop_loss, best.take_profit_1, bdTp2ForCalc);
-    const oldBdRisk = main.parentElement.querySelector(".risk-info");
-    if (oldBdRisk) oldBdRisk.remove();
-    if (bdPosInfo && best.direction && best.direction !== "flat") {
-      const riskDiv = document.createElement("div");
-      riskDiv.className = "kv risk-info";
-      const bdLeverageLabel = bdPosInfo.leverage > 1 ? ` (плечо ×${bdPosInfo.leverage.toFixed(1)})` : "";
-      const riskRows = [
-        ["Риск на сделку", `${fmtPrice(bdPosInfo.riskAmount)} USDT (${riskPercent}%)`, "short"],
-        ["Размер позиции", `${bdPosInfo.positionSizeCoins.toFixed(6)} ${best.coin}`, ""],
-        ["Стоимость позиции", `${fmtPrice(bdPosInfo.positionValueUsdt)} USDT${bdLeverageLabel}`, "warn"],
-        ["Комиссия (≈)", `${fmtPrice(bdPosInfo.commissionTotal)} USDT`, "short"],
-      ];
-      if (bdPosInfo.tp1Profit != null) {
-        const netCls = bdPosInfo.tp1Net > 0 ? "long" : "short";
-        riskRows.push(["Профит при TP1", `+${fmtPrice(bdPosInfo.tp1Profit)} USDT`, "long"]);
-        riskRows.push(["Чистый профит TP1", `${bdPosInfo.tp1Net >= 0 ? "+" : ""}${fmtPrice(bdPosInfo.tp1Net)} USDT`, netCls]);
-      }
-      if (bdPosInfo.tp2Profit != null) {
-        const netCls = bdPosInfo.tp2Net > 0 ? "long" : "short";
-        riskRows.push(["Профит при TP2", `+${fmtPrice(bdPosInfo.tp2Profit)} USDT`, "long"]);
-        riskRows.push(["Чистый профит TP2", `${bdPosInfo.tp2Net >= 0 ? "+" : ""}${fmtPrice(bdPosInfo.tp2Net)} USDT`, netCls]);
-      }
-      riskRows.forEach(([k, v, cls]) => {
-        const kEl = document.createElement("div");
-        kEl.className = "k";
-        kEl.textContent = k;
-        const vEl = document.createElement("div");
-        vEl.className = "v " + (cls || "");
-        vEl.textContent = v;
-        riskDiv.appendChild(kEl);
-        riskDiv.appendChild(vEl);
-      });
-      const bdBestNet = bdPosInfo.tp1Net != null ? bdPosInfo.tp1Net : bdPosInfo.tp2Net;
-      if (bdBestNet != null && bdBestNet <= 0) {
-        const warn = document.createElement("div");
-        warn.className = "risk-warn-negative";
-        warn.textContent = "⚠ Комиссия съедает профит. Рекомендуется увеличить баланс или использовать лимитные ордера (комиссия ×2.5 ниже).";
-        riskDiv.appendChild(warn);
-      }
-      main.parentElement.appendChild(riskDiv);
-    }
 
     $("best-deal-rationale").textContent = best.rationale || "";
 
@@ -1395,8 +1201,7 @@
       const pnlPct = ((pnl / watch.entry) * 100).toFixed(2);
       const pnlSign = pnl >= 0 ? "+" : "";
       const pnlClass = pnl >= 0 ? "profit" : "loss";
-      const posInfo = calcPositionSize(watch.entry, watch.stop_loss, watch.take_profit_1, watch.take_profit_2);
-      const pnlUsdt = posInfo ? (posInfo.positionSizeCoins * pnl).toFixed(2) : null;
+
 
       // Distances
       const distToSl = ((Math.abs(price - watch.stop_loss) / price) * 100).toFixed(2);
@@ -1405,7 +1210,7 @@
       statusEl.innerHTML = `
         <span class="watch-status-verdict ${verdictClass}">${verdict}</span>
         <span class="watch-status-price">Цена: ${fmtPrice(price)} · Тренд: ${j.analysis?.trend || "—"}</span>
-        <span class="watch-status-pnl ${pnlClass}">PnL: ${pnlSign}${pnlPct}%${pnlUsdt ? ` (${pnlSign}${pnlUsdt} USDT)` : ""}</span>
+        <span class="watch-status-pnl ${pnlClass}">PnL: ${pnlSign}${pnlPct}%</span>
         <span class="watch-status-dist">До SL: ${distToSl}%${distToTp1 ? ` · До TP1: ${distToTp1}%` : ""}</span>
       `;
       btn.textContent = "\uD83D\uDD0D";
@@ -1455,19 +1260,16 @@
     const tp2Hit = watch.take_profit_2 != null && (isLong ? price >= watch.take_profit_2 : price <= watch.take_profit_2);
 
     if (slHit) {
-      updateBalanceOnHit(watch, "SL", price);
       await sendAlert(watch, "SL", price);
       removeWatch(watch.id);
       return;
     }
     if (tp2Hit) {
-      updateBalanceOnHit(watch, "TP2", price);
       await sendAlert(watch, "TP2", price);
       removeWatch(watch.id);
       return;
     }
     if (tp1Hit) {
-      updateBalanceOnHit(watch, "TP1", price);
       await sendAlert(watch, "TP1", price);
       const idx = watches.findIndex((w) => w.id === watch.id);
       if (idx !== -1) {
@@ -1549,31 +1351,8 @@
     });
   }
 
-  function setupBalance() {
-    renderBalanceDisplay();
-    $("balance-display").addEventListener("click", openBalanceEdit);
-    $("balance-save-btn").addEventListener("click", commitBalanceEdit);
-    $("balance-cancel-btn").addEventListener("click", closeBalanceEdit);
-    $("balance-input").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") commitBalanceEdit();
-      if (e.key === "Escape") closeBalanceEdit();
-    });
-    $("risk-input").addEventListener("keydown", (e) => {
-      if (e.key === "Enter") commitBalanceEdit();
-      if (e.key === "Escape") closeBalanceEdit();
-    });
-    document.addEventListener("click", (e) => {
-      const widget = $("balance-widget");
-      if (!widget.contains(e.target) && !$("balance-edit").hidden) {
-        closeBalanceEdit();
-      }
-    });
-    $("balance-overlay").addEventListener("click", closeBalanceEdit);
-  }
-
   function init() {
     setupThemeToggle();
-    setupBalance();
     buildChips("coin-row", COINS, "coin");
     buildChips("tf-row", TFS, "tf");
     $("analyze-btn").addEventListener("click", analyze);

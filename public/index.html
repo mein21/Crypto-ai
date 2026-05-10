@@ -30,23 +30,6 @@
   </head>
   <body>
     <div class="top-bar">
-      <div class="balance-widget" id="balance-widget">
-        <div class="balance-display" id="balance-display" title="Нажмите, чтобы изменить баланс">
-          <span class="balance-label">Баланс</span>
-          <span class="balance-value" id="balance-value">—</span>
-        </div>
-        <div class="balance-edit" id="balance-edit" hidden>
-          <input type="number" id="balance-input" class="balance-input" placeholder="Введите баланс (USDT)" min="0" step="any" />
-          <div class="balance-risk-row">
-            <label class="balance-risk-label">Риск %</label>
-            <input type="number" id="risk-input" class="risk-input" placeholder="1" min="0.1" max="100" step="0.1" />
-          </div>
-          <div class="balance-actions">
-            <button type="button" class="balance-save-btn" id="balance-save-btn">Сохранить</button>
-            <button type="button" class="balance-cancel-btn" id="balance-cancel-btn">Отмена</button>
-          </div>
-        </div>
-      </div>
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Переключить тему" title="Переключить тему">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="4"/>
@@ -57,7 +40,6 @@
         </svg>
       </button>
     </div>
-    <div class="balance-overlay" id="balance-overlay"></div>
     <div class="app">
       <header class="hero">
         <div class="brand">
