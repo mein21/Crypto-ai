@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from .indicators import (
+    adx as adx_series,
     atr as atr_series,
     bollinger,
     cluster_levels,
@@ -28,6 +29,13 @@ from .indicators import (
     rsi as rsi_series,
 )
 
+# Tunables — tweaked together when calibrating the rules-based fallback.
+ADX_GATE = 20.0   # below this we treat the regime as боковик / chop
+SL_ATR_MULT = 1.0
+TP_ATR_MULT = 2.0   # was 1.7 — lifts theoretical break-even WR from 37% → 33%
+RSI_LONG_MAX = 65.0   # was implicitly 70 — avoid late-trend longs
+RSI_SHORT_MIN = 35.0  # symmetric for shorts
+
 
 @dataclass
 class _Trade:
@@ -36,48 +44,88 @@ class _Trade:
     stop: float
     tp: float
     entry_idx: int
-    rr: float  # take / risk in ATR units
+    rr: float  # configured take / risk in ATR units (RR target at the time of entry)
+    risk_atr: float = 0.0  # |entry - stop| (1 R in price units)
+    realised_r: float = 0.0  # signed R actually achieved at exit
     outcome: str = "open"  # "win" / "loss" / "open"
+    exit_kind: str = "open"  # "tp" / "sl" / "ema_cross" / "time_stop"
     bars_held: int = 0
 
 
 def _rules_signal(close: float, last: dict) -> tuple[str, float, float, float]:
     """Return (direction, entry, stop_distance_atr, tp_distance_atr).
 
-    Mirrors the high-level rules-based decision from `_rules_based_fallback`
-    but works in ATR units so we can simulate without exact S/R lists.
+    Mirrors the high-level rules-based decision but works in ATR units.
+    Filters: trend (EMA stack) + MACD agreement + RSI not over-extended
+    + ADX above the chop gate (no entries in sideways regimes).
     """
     trend = last["trend"]
     macd_state = last["macd_state"]
     rsi_v = last["rsi"]
     atr_v = last["atr"]
+    adx_v = float(last.get("adx", 0.0) or 0.0)
     if atr_v <= 0:
         return "flat", 0.0, 0.0, 0.0
-    bullish = trend == "восходящий" and macd_state in {"бычий", "нейтрально"} and rsi_v < 70
-    bearish = trend == "нисходящий" and macd_state in {"медвежий", "нейтрально"} and rsi_v > 30
+    if adx_v < ADX_GATE:
+        return "flat", 0.0, 0.0, 0.0
+    bullish = (
+        trend == "восходящий"
+        and macd_state in {"бычий", "нейтрально"}
+        and rsi_v < RSI_LONG_MAX
+    )
+    bearish = (
+        trend == "нисходящий"
+        and macd_state in {"медвежий", "нейтрально"}
+        and rsi_v > RSI_SHORT_MIN
+    )
     if bullish:
-        return "long", float(close), 1.0 * atr_v, 1.7 * atr_v
+        return "long", float(close), SL_ATR_MULT * atr_v, TP_ATR_MULT * atr_v
     if bearish:
-        return "short", float(close), 1.0 * atr_v, 1.7 * atr_v
+        return "short", float(close), SL_ATR_MULT * atr_v, TP_ATR_MULT * atr_v
     return "flat", 0.0, 0.0, 0.0
 
 
-def _bar_summary(df: pd.DataFrame, i: int) -> dict | None:
-    """Build a tiny indicator summary at row position `i` using only data up to `i`."""
+def _precompute(df: pd.DataFrame) -> dict:
+    """Compute all indicator series once per backtest call (avoids O(n²) recompute)."""
+    close = df["close"]
+    ema_f = ema(close, 20)
+    ema_s = ema(close, 50)
+    ema_l = ema(close, 200) if len(close) >= 200 else ema(close, min(len(close), 100))
+    rsi_v = rsi_series(close, 14)
+    macd_df = macd_calc(close)
+    atr_v = atr_series(df, 14)
+    try:
+        adx_v = adx_series(df, 14)
+    except Exception:  # noqa: BLE001 — fall back gracefully if ADX cannot be computed
+        adx_v = pd.Series(np.zeros(len(df), dtype=float), index=df.index)
+    return {
+        "close": close,
+        "ema_f": ema_f,
+        "ema_s": ema_s,
+        "ema_l": ema_l,
+        "rsi": rsi_v,
+        "macd": macd_df["macd"],
+        "macd_signal": macd_df["signal"],
+        "macd_hist": macd_df["hist"],
+        "atr": atr_v,
+        "adx": adx_v,
+    }
+
+
+def _bar_summary(pre: dict, i: int) -> dict | None:
+    """Build the indicator snapshot at row position `i` from the pre-computed series."""
     if i < 60:
         return None
-    sub = df.iloc[: i + 1]
-    close = sub["close"]
-    ema_f = float(ema(close, 20).iloc[-1])
-    ema_s = float(ema(close, 50).iloc[-1])
-    ema_l = float(ema(close, 200).iloc[-1]) if len(close) >= 200 else float(ema(close, min(len(close), 100)).iloc[-1])
-    rsi_v = float(rsi_series(close, 14).iloc[-1])
-    macd_df = macd_calc(close)
-    macd_v = float(macd_df["macd"].iloc[-1])
-    sig_v = float(macd_df["signal"].iloc[-1])
-    hist_v = float(macd_df["hist"].iloc[-1])
-    atr_v = float(atr_series(sub, 14).iloc[-1])
-    last_close = float(close.iloc[-1])
+    last_close = float(pre["close"].iloc[i])
+    ema_f = float(pre["ema_f"].iloc[i])
+    ema_s = float(pre["ema_s"].iloc[i])
+    ema_l = float(pre["ema_l"].iloc[i])
+    rsi_v = float(pre["rsi"].iloc[i])
+    macd_v = float(pre["macd"].iloc[i])
+    sig_v = float(pre["macd_signal"].iloc[i])
+    hist_v = float(pre["macd_hist"].iloc[i])
+    atr_v = float(pre["atr"].iloc[i])
+    adx_v = float(pre["adx"].iloc[i]) if not np.isnan(pre["adx"].iloc[i]) else 0.0
 
     if last_close > ema_l and ema_f > ema_s:
         trend = "восходящий"
@@ -93,40 +141,58 @@ def _bar_summary(df: pd.DataFrame, i: int) -> dict | None:
         "macd_state": macd_state,
         "rsi": rsi_v,
         "atr": atr_v,
+        "adx": adx_v,
     }
 
 
-def _resolve_trade(df: pd.DataFrame, t: _Trade, max_hold: int = 30) -> _Trade:
-    """Walk forward and resolve a trade against TP / SL using OHLC."""
+def _close_at_price(t: _Trade, exit_price: float, kind: str, j: int) -> _Trade:
+    pnl = (exit_price - t.entry) if t.direction == "long" else (t.entry - exit_price)
+    realised = (pnl / t.risk_atr) if t.risk_atr > 0 else 0.0
+    t.realised_r = float(realised)
+    t.exit_kind = kind
+    t.bars_held = j - t.entry_idx
+    t.outcome = "win" if realised > 0 else "loss"
+    return t
+
+
+def _resolve_trade(
+    df: pd.DataFrame,
+    pre: dict,
+    t: _Trade,
+    max_hold: int = 30,
+) -> _Trade:
+    """Walk forward and resolve a trade against TP / SL / EMA-cross / time-stop.
+
+    EMA-cross exit: if the fast EMA crosses against our direction (EMA20<EMA50
+    while long, EMA20>EMA50 while short), close at the bar's close. Captures
+    early trend exhaustion before SL is touched and converts marginal winners
+    into realised gains instead of round-trips back to SL.
+    """
     n = len(df)
     end = min(n - 1, t.entry_idx + max_hold)
+    high_s = df["high"]
+    low_s = df["low"]
+    close_s = df["close"]
+    ema_f = pre["ema_f"]
+    ema_s = pre["ema_s"]
     for j in range(t.entry_idx + 1, end + 1):
-        high = float(df["high"].iloc[j])
-        low = float(df["low"].iloc[j])
+        high = float(high_s.iloc[j])
+        low = float(low_s.iloc[j])
         if t.direction == "long":
             if low <= t.stop:
-                t.outcome = "loss"
-                t.bars_held = j - t.entry_idx
-                return t
+                return _close_at_price(t, t.stop, "sl", j)
             if high >= t.tp:
-                t.outcome = "win"
-                t.bars_held = j - t.entry_idx
-                return t
+                return _close_at_price(t, t.tp, "tp", j)
+            if float(ema_f.iloc[j]) < float(ema_s.iloc[j]):
+                return _close_at_price(t, float(close_s.iloc[j]), "ema_cross", j)
         else:
             if high >= t.stop:
-                t.outcome = "loss"
-                t.bars_held = j - t.entry_idx
-                return t
+                return _close_at_price(t, t.stop, "sl", j)
             if low <= t.tp:
-                t.outcome = "win"
-                t.bars_held = j - t.entry_idx
-                return t
-    # Closed by time-stop at the end of the window
-    last_close = float(df["close"].iloc[end])
-    pnl = (last_close - t.entry) if t.direction == "long" else (t.entry - last_close)
-    t.bars_held = end - t.entry_idx
-    t.outcome = "win" if pnl > 0 else "loss"
-    return t
+                return _close_at_price(t, t.tp, "tp", j)
+            if float(ema_f.iloc[j]) > float(ema_s.iloc[j]):
+                return _close_at_price(t, float(close_s.iloc[j]), "ema_cross", j)
+    return _close_at_price(t, float(close_s.iloc[end]), "time_stop", end)
 
 
 def _aggregate_trades(trades: list[_Trade]) -> dict:
@@ -143,15 +209,21 @@ def _aggregate_trades(trades: list[_Trade]) -> dict:
     wins = [t for t in trades if t.outcome == "win"]
     losses = [t for t in trades if t.outcome == "loss"]
     win_rate = len(wins) / len(trades) * 100.0
-    # Profit factor on ATR-units: sum(rr on wins) / sum(1 on losses).
-    gross_win = sum(t.rr for t in wins)
-    gross_loss = float(len(losses))
-    pf = (gross_win / gross_loss) if gross_loss > 0 else float("inf") if gross_win > 0 else 0.0
-    # Expectancy in ATR units: P(win)*rr - P(loss)*1
+    # Use realised R per trade (signed). EMA-cross / time-stop wins earn
+    # a fractional R rather than the full TP target, which is more honest
+    # than crediting them at the configured RR.
+    gross_win = sum(t.realised_r for t in wins)
+    gross_loss = sum(-t.realised_r for t in losses)  # both summands positive
+    pf = (
+        (gross_win / gross_loss) if gross_loss > 0
+        else float("inf") if gross_win > 0
+        else 0.0
+    )
+    avg_rr = (gross_win / len(wins)) if wins else 0.0
+    avg_loss = (gross_loss / len(losses)) if losses else 1.0
     p_win = len(wins) / len(trades)
     p_loss = len(losses) / len(trades)
-    avg_rr = (gross_win / len(wins)) if wins else 0.0
-    expectancy = p_win * avg_rr - p_loss * 1.0
+    expectancy = p_win * avg_rr - p_loss * avg_loss
     return {
         "total_trades": int(len(trades)),
         "win_rate": round(float(win_rate), 1),
@@ -160,6 +232,10 @@ def _aggregate_trades(trades: list[_Trade]) -> dict:
         "expectancy_atr": round(float(expectancy), 3),
         "longs": int(sum(1 for t in trades if t.direction == "long")),
         "shorts": int(sum(1 for t in trades if t.direction == "short")),
+        "tp_hits": int(sum(1 for t in trades if t.exit_kind == "tp")),
+        "sl_hits": int(sum(1 for t in trades if t.exit_kind == "sl")),
+        "ema_exits": int(sum(1 for t in trades if t.exit_kind == "ema_cross")),
+        "time_stops": int(sum(1 for t in trades if t.exit_kind == "time_stop")),
     }
 
 
@@ -180,6 +256,7 @@ def walk_forward_backtest(
     n = len(df)
     start = max(60, n - lookback_bars)
     chunk_size = max(20, (n - start) // max(1, n_windows))
+    pre = _precompute(df)
 
     trades: list[_Trade] = []
     last_open: _Trade | None = None
@@ -187,7 +264,7 @@ def walk_forward_backtest(
         if last_open is not None:
             # Don't open a new trade while one is alive.
             continue
-        s = _bar_summary(df, i)
+        s = _bar_summary(pre, i)
         if s is None:
             continue
         close = float(df["close"].iloc[i])
@@ -204,9 +281,10 @@ def walk_forward_backtest(
             tp=tp,
             entry_idx=i,
             rr=rr,
+            risk_atr=stop_d,
         )
         last_open = t
-        resolved = _resolve_trade(df, t, max_hold=max_hold)
+        resolved = _resolve_trade(df, pre, t, max_hold=max_hold)
         trades.append(resolved)
         last_open = None
 
@@ -230,10 +308,17 @@ def walk_forward_backtest(
 def backtest_summary_for_prompt(stats: dict | None) -> str:
     if not stats or stats.get("total_trades", 0) == 0:
         return ""
+    breakdown = ""
+    tp = stats.get("tp_hits")
+    sl = stats.get("sl_hits")
+    em = stats.get("ema_exits")
+    ts = stats.get("time_stops")
+    if tp is not None:
+        breakdown = f" [TP {tp}/SL {sl}/EMA {em}/time {ts}]"
     return (
         f"  • Walk-forward: {stats['total_trades']} сделок · winrate {stats['win_rate']}% · "
         f"PF {stats['profit_factor']} · expectancy {stats['expectancy_atr']} ATR "
-        f"(окно {stats['lookback_bars']} баров)"
+        f"(окно {stats['lookback_bars']} баров){breakdown}"
     )
 
 
