@@ -20,6 +20,62 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // --- Glossary: simple explanations for technical terms ---
+  const GLOSSARY = {
+    "RSI": "Индекс относительной силы. Показывает, перекуплен актив (>70) или перепродан (<30). Чем выше — тем вероятнее откат вниз.",
+    "MACD": "Схождение/расхождение скользящих средних. Показывает силу и направление тренда. Бычий = рост, медвежий = падение.",
+    "EMA": "Экспоненциальная скользящая средняя. Сглаживает цену, показывает направление тренда. EMA20 — быстрая, EMA200 — долгосрочная.",
+    "Bollinger": "Полосы Боллинджера. Канал вокруг цены: если цена у верхней границы — возможен откат вниз, у нижней — отскок вверх.",
+    "ATR": "Средний диапазон движения цены. Чем больше — тем сильнее колебания. Помогает ставить стоп-лосс на правильном расстоянии.",
+    "ADX": "Сила тренда. Ниже 20 — тренда нет (боковик). 20-40 — умеренный тренд. Выше 40 — сильный тренд.",
+    "BB верх": "Верхняя полоса Боллинджера — уровень, от которого цена часто отскакивает вниз.",
+    "BB низ": "Нижняя полоса Боллинджера — уровень, от которого цена часто отскакивает вверх.",
+    "Направление": "Рекомендация бота: Long = покупка (ставка на рост), Short = продажа (ставка на падение), Flat = не торговать.",
+    "Вход": "Цена, по которой рекомендуется открыть сделку.",
+    "Stop-loss": "Уровень защиты от убытков. Если цена дойдёт до этой отметки — сделка автоматически закроется с минимальным убытком.",
+    "Take-profit 1": "Первая цель прибыли. Когда цена достигнет этого уровня — можно зафиксировать часть прибыли.",
+    "Take-profit 2": "Вторая цель прибыли (дальняя). Для тех, кто хочет подержать позицию подольше ради большей прибыли.",
+    "Уверенность": "Насколько бот уверен в сигнале (0-100%). Чем выше — тем надёжнее. Ниже 45% сигнал не показывается.",
+    "Режим рынка": "Текущее состояние: тренд (направленное движение), боковик (цена ходит в диапазоне), разгон (начало сильного движения).",
+    "RR": "Risk/Reward — соотношение риска к прибыли. RR 1.5 значит: на каждый 1$ риска потенциальная прибыль 1.5$.",
+    "Лимит": "Ордер по заданной цене. Исполнится только если цена дойдёт до нужного уровня. Комиссия ниже.",
+    "По рынку": "Ордер по текущей цене. Исполняется мгновенно, но комиссия выше.",
+    "По пробою": "Ордер, который активируется когда цена пробивает важный уровень. Ловит начало сильного движения.",
+    "Корреляция": "Насколько монета движется вместе с BTC. +1 = полностью вместе, -1 = в противоположную сторону, 0 = независимо.",
+  };
+
+  function makeTermClickable(el, term) {
+    const explanation = GLOSSARY[term];
+    if (!explanation) return;
+    el.classList.add("term-clickable");
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // Remove any existing tooltip
+      document.querySelectorAll(".term-tooltip").forEach(t => t.remove());
+      const tooltip = document.createElement("div");
+      tooltip.className = "term-tooltip";
+      tooltip.innerHTML = `<strong>${term}</strong><br>${explanation}`;
+      document.body.appendChild(tooltip);
+      // Position near the clicked element
+      const rect = el.getBoundingClientRect();
+      const tooltipWidth = Math.min(300, window.innerWidth - 20);
+      tooltip.style.width = tooltipWidth + "px";
+      let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+      if (left < 10) left = 10;
+      if (left + tooltipWidth > window.innerWidth - 10) left = window.innerWidth - 10 - tooltipWidth;
+      tooltip.style.left = left + "px";
+      const spaceBelow = window.innerHeight - rect.bottom;
+      if (spaceBelow > 120) {
+        tooltip.style.top = (rect.bottom + 8) + "px";
+      } else {
+        tooltip.style.bottom = (window.innerHeight - rect.top + 8) + "px";
+      }
+      // Close on tap anywhere
+      const close = () => { tooltip.remove(); document.removeEventListener("click", close); };
+      setTimeout(() => document.addEventListener("click", close), 10);
+    });
+  }
+
   function inferDevApiBase() {
     if (typeof window === "undefined") return "";
     const host = window.location.hostname;
@@ -716,6 +772,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      makeTermClickable(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -725,6 +782,7 @@
         const conf = entryTypeLabels[extra.type] || entryTypeLabels.market;
         badge.textContent = conf.label;
         badge.title = conf.title;
+        makeTermClickable(badge, conf.label);
         vEl.appendChild(document.createTextNode(" "));
         vEl.appendChild(badge);
       }
@@ -768,9 +826,11 @@
     const indicatorsObj = analysis.indicators_summary || {};
     const indLabels = { rsi: "RSI", macd: "MACD", ema: "EMA", bollinger: "Bollinger" };
     Object.entries(indicatorsObj).forEach(([k, v]) => {
+      const label = indLabels[k] || k;
       const kEl = document.createElement("div");
       kEl.className = "k";
-      kEl.textContent = indLabels[k] || k;
+      kEl.textContent = label;
+      makeTermClickable(kEl, label);
       const vEl = document.createElement("div");
       vEl.className = "v";
       vEl.textContent = v;
@@ -787,6 +847,7 @@
         const kEl = document.createElement("div");
         kEl.className = "k";
         kEl.textContent = k;
+        makeTermClickable(kEl, k);
         const vEl = document.createElement("div");
         vEl.className = "v";
         vEl.textContent = v;
@@ -870,6 +931,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      makeTermClickable(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
