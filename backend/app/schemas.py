@@ -228,6 +228,15 @@ class Analytics(BaseModel):
     short_account_pct: Optional[float] = None
 
 
+class Liquidations(BaseModel):
+    taker_buy_vol: Optional[float] = None
+    taker_sell_vol: Optional[float] = None
+    taker_buy_sell_ratio: Optional[float] = None
+    buy_pct: Optional[float] = None
+    sell_pct: Optional[float] = None
+    avg_ratio_5h: Optional[float] = None
+
+
 class AnalyzeResponse(BaseModel):
     analysis: Analysis
     chart_png_b64: str
@@ -243,6 +252,7 @@ class AnalyzeResponse(BaseModel):
     sentiment: Optional[Sentiment] = None
     strategy_stats: Optional[StrategyStats] = None
     analytics: Optional[Analytics] = None
+    liquidations: Optional[Liquidations] = None
 
 
 class BestDealRequest(BaseModel):

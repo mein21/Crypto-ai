@@ -226,6 +226,27 @@ def _build_user_prompt(
             ss = sentiment_summary_for_prompt(sentiment)
             if ss:
                 parts.append("\nSentiment:\n" + ss)
+        liquidations = extra.get("liquidations")
+        if liquidations:
+            parts_l = ["Давление ликвидаций (Binance Futures, 1h):"]
+            ratio = liquidations.get("taker_buy_sell_ratio", 1.0)
+            lbl = "покупатели доминируют" if ratio > 1.15 else "продавцы доминируют" if ratio < 0.85 else "баланс"
+            parts_l.append(f"  • Taker buy/sell ratio: {ratio:.4f} ({lbl})")
+            if "buy_pct" in liquidations:
+                parts_l.append(f"  • Покупки: {liquidations['buy_pct']}% / Продажи: {liquidations['sell_pct']}%")
+            if "avg_ratio_5h" in liquidations:
+                parts_l.append(f"  • Средний ratio за 5ч: {liquidations['avg_ratio_5h']:.4f}")
+            parts.append("\n" + "\n".join(parts_l))
+        corr = extra.get("correlation")
+        coin = extra.get("coin", "")
+        if corr and coin and coin != "BTC":
+            pairs = corr.get("pairs", [])
+            for p in pairs:
+                if p.get("coin") == coin:
+                    cv = p["value"]
+                    cl = "высокая" if abs(cv) > 0.8 else "средняя" if abs(cv) > 0.5 else "низкая"
+                    parts.append(f"\nКорреляция {coin}/BTC: {cv:.3f} ({cl}) — учти при анализе направления.")
+                    break
         analytics = extra.get("analytics")
         if analytics:
             parts_a = ["Аналитические центры (Binance Futures):"]
@@ -557,6 +578,11 @@ def _validate_signal(
     if adx_v < 18:
         confidence = max(20, confidence - 10)
         notes.append("ADX слабый — трендовая идея с риском")
+
+    vol_ratio = float(summary.get("volume_ratio", 1.0))
+    if vol_ratio < 0.5:
+        confidence = max(20, confidence - 12)
+        notes.append(f"Объём ниже нормы (×{vol_ratio:.2f}) — сигнал слабый")
 
     rationale = sig.rationale
     if notes:

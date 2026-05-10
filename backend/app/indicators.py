@@ -238,9 +238,16 @@ class IndicatorBundle:
         # ATR as percentage of price — used by callers as a volatility filter.
         atr_pct = (atr_v / close * 100.0) if close > 0 else 0.0
 
+        vol = self.df["volume"].astype(float)
+        vol_sma20 = vol.rolling(20).mean()
+        vol_last = float(vol.iloc[-1])
+        vol_avg = float(vol_sma20.iloc[-1]) if len(vol_sma20.dropna()) > 0 else vol_last
+        vol_ratio = vol_last / vol_avg if vol_avg > 0 else 1.0
+
         return {
             "close": close,
             "ema_fast": ema_fast_v,
+            "volume_ratio": round(vol_ratio, 2),
             "ema_slow": ema_slow_v,
             "ema_long": ema_long_v,
             "rsi": rsi_v,

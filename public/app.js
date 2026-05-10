@@ -339,17 +339,18 @@
     return { riskAmount, positionSizeCoins, positionValueUsdt, slDistance, leverage, commissionTotal, tp1Profit, tp1Net, tp2Profit, tp2Net };
   }
 
-  function updateBalanceOnHit(watch, hitType, hitPrice) {
+  function updateBalanceOnHit(watch, hitType, hitPrice, pct) {
     if (balance == null) return;
     const posInfo = calcPositionSize(watch.entry, watch.stop_loss, watch.take_profit_1, watch.take_profit_2);
     if (!posInfo) return;
+    const frac = pct || 1.0;
 
     if (hitType === "SL") {
-      saveBalance(Math.max(0, balance - posInfo.riskAmount - posInfo.commissionTotal));
+      saveBalance(Math.max(0, balance - (posInfo.riskAmount + posInfo.commissionTotal) * frac));
     } else if (hitType === "TP1" && posInfo.tp1Net != null) {
-      saveBalance(balance + posInfo.tp1Net);
+      saveBalance(balance + posInfo.tp1Net * frac);
     } else if (hitType === "TP2" && posInfo.tp2Net != null) {
-      saveBalance(balance + posInfo.tp2Net);
+      saveBalance(balance + posInfo.tp2Net * frac);
     }
   }
 
@@ -1023,6 +1024,7 @@
       sentiment,
       strategy_stats,
       analytics,
+      liquidations,
     } = resp;
     $("result").hidden = false;
     renderHtfStrip(htf_trends);
@@ -1034,6 +1036,7 @@
     renderSentiment(sentiment);
     renderStrategy(strategy_stats);
     renderAnalytics(analytics);
+    renderLiquidations(liquidations);
     if (fear_greed) {
       renderFearGreed(fear_greed);
       $("market-context").hidden = false;
@@ -1732,27 +1735,35 @@
     const tp2Hit = watch.take_profit_2 != null && (isLong ? price >= watch.take_profit_2 : price <= watch.take_profit_2);
 
     if (slHit) {
-      updateBalanceOnHit(watch, "SL", price);
-      incrementFailedTrades();
+      const pct = watch.tp1_hit ? 0.5 : 1.0;
+      updateBalanceOnHit(watch, "SL", price, pct);
+      if (!watch.tp1_hit) incrementFailedTrades();
+      addTradeToHistory(watch, "SL", price, pct);
       await sendAlert(watch, "SL", price);
       removeWatch(watch.id);
+      playHitSound("sl");
       return;
     }
     if (tp2Hit) {
-      updateBalanceOnHit(watch, "TP2", price);
+      updateBalanceOnHit(watch, "TP2", price, 0.5);
+      addTradeToHistory(watch, "TP2", price, 0.5);
       await sendAlert(watch, "TP2", price);
       removeWatch(watch.id);
+      playHitSound("tp");
       return;
     }
     if (tp1Hit) {
-      updateBalanceOnHit(watch, "TP1", price);
+      updateBalanceOnHit(watch, "TP1", price, 0.5);
+      addTradeToHistory(watch, "TP1", price, 0.5);
       await sendAlert(watch, "TP1", price);
       const idx = watches.findIndex((w) => w.id === watch.id);
       if (idx !== -1) {
         watches[idx].tp1_hit = true;
+        watches[idx].stop_loss = watch.entry;
         saveWatches();
         renderWatches();
       }
+      playHitSound("tp");
     }
   }
 
@@ -1812,6 +1823,188 @@
     }
   }
 
+  // --- Sound notifications ---
+  function playHitSound(type) {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      if (type === "tp") {
+        osc.frequency.value = 880;
+        osc.type = "sine";
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+        osc.start(); osc.stop(ctx.currentTime + 0.5);
+      } else {
+        osc.frequency.value = 330;
+        osc.type = "square";
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+        osc.start(); osc.stop(ctx.currentTime + 0.4);
+      }
+    } catch { /* audio not available */ }
+  }
+
+  // --- Trade History ---
+  function loadTradeHistory() {
+    try { return JSON.parse(localStorage.getItem("crypto_trade_history") || "[]"); } catch { return []; }
+  }
+  function saveTradeHistory(history) {
+    try { localStorage.setItem("crypto_trade_history", JSON.stringify(history)); } catch {}
+  }
+  function addTradeToHistory(watch, hitType, hitPrice, pct) {
+    const history = loadTradeHistory();
+    const isLong = watch.direction === "long";
+    const sign = isLong ? 1 : -1;
+    const pnlPct = ((hitPrice - watch.entry) / watch.entry) * 100 * sign;
+    history.unshift({
+      id: Date.now(),
+      coin: watch.coin,
+      timeframe: watch.timeframe,
+      direction: watch.direction,
+      entry: watch.entry,
+      stop_loss: watch.stop_loss,
+      take_profit_1: watch.take_profit_1,
+      take_profit_2: watch.take_profit_2,
+      hit_type: hitType,
+      hit_price: hitPrice,
+      pnl_pct: Math.round(pnlPct * 100) / 100,
+      portion: pct,
+      closed_at: new Date().toISOString(),
+      note: "",
+    });
+    if (history.length > 200) history.length = 200;
+    saveTradeHistory(history);
+    renderTradeHistory();
+  }
+  function renderTradeHistory() {
+    const panel = $("history-panel");
+    const list = $("history-list");
+    const statsEl = $("history-stats");
+    if (!panel || !list) return;
+    const history = loadTradeHistory();
+    if (!history.length) { panel.hidden = true; return; }
+    panel.hidden = false;
+    const wins = history.filter(h => h.hit_type !== "SL" || h.portion < 1);
+    const losses = history.filter(h => h.hit_type === "SL" && h.portion >= 1);
+    const winrate = history.length > 0 ? ((wins.length / history.length) * 100).toFixed(1) : "0";
+    const avgPnl = history.length > 0 ? (history.reduce((s, h) => s + h.pnl_pct, 0) / history.length).toFixed(2) : "0";
+    const bestTrade = history.reduce((best, h) => h.pnl_pct > best.pnl_pct ? h : best, history[0]);
+    const worstTrade = history.reduce((worst, h) => h.pnl_pct < worst.pnl_pct ? h : worst, history[0]);
+    if (statsEl) {
+      statsEl.innerHTML = `
+        <div class="stat-chip"><span class="stat-label">Сделок</span><span class="stat-value">${history.length}</span></div>
+        <div class="stat-chip ${parseFloat(winrate) >= 50 ? "long" : "short"}"><span class="stat-label">Winrate</span><span class="stat-value">${winrate}%</span></div>
+        <div class="stat-chip ${parseFloat(avgPnl) >= 0 ? "long" : "short"}"><span class="stat-label">Ср. PnL</span><span class="stat-value">${avgPnl}%</span></div>
+        <div class="stat-chip long"><span class="stat-label">Лучшая</span><span class="stat-value">+${bestTrade.pnl_pct}%</span></div>
+        <div class="stat-chip short"><span class="stat-label">Худшая</span><span class="stat-value">${worstTrade.pnl_pct}%</span></div>
+      `;
+    }
+    list.innerHTML = "";
+    history.slice(0, 20).forEach(h => {
+      const row = document.createElement("div");
+      row.className = "history-row " + (h.hit_type === "SL" && h.portion >= 1 ? "loss" : "win");
+      const hitIcon = h.hit_type === "SL" ? "\uD83D\uDED1" : "\uD83C\uDFAF";
+      const pnlCls = h.pnl_pct >= 0 ? "long" : "short";
+      row.innerHTML = `
+        <div class="history-main">
+          <span class="history-coin">${h.coin}</span>
+          <span class="history-dir ${h.direction}">${h.direction === "long" ? "\u25B2" : "\u25BC"}</span>
+          <span class="history-tf">${h.timeframe}</span>
+          <span class="history-hit">${hitIcon} ${h.hit_type}${h.portion < 1 ? " (50%)" : ""}</span>
+          <span class="history-pnl ${pnlCls}">${h.pnl_pct >= 0 ? "+" : ""}${h.pnl_pct}%</span>
+          <span class="history-date">${new Date(h.closed_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}</span>
+        </div>
+        <div class="history-note-wrap">
+          <input class="history-note-input" type="text" placeholder="Заметка..." value="${(h.note || "").replace(/"/g, "&quot;")}" data-trade-id="${h.id}" />
+        </div>
+      `;
+      const noteInput = row.querySelector(".history-note-input");
+      noteInput.addEventListener("change", (e) => {
+        const allHistory = loadTradeHistory();
+        const t = allHistory.find(x => x.id === h.id);
+        if (t) { t.note = e.target.value; saveTradeHistory(allHistory); }
+      });
+      list.appendChild(row);
+    });
+    if (history.length > 20) {
+      const more = document.createElement("div");
+      more.className = "history-more muted";
+      more.textContent = `+ ещё ${history.length - 20} сделок`;
+      list.appendChild(more);
+    }
+  }
+
+  // --- Multi-coin Dashboard ---
+  async function loadDashboard() {
+    const grid = $("dashboard-grid");
+    const section = $("dashboard-section");
+    if (!grid || !section) return;
+    section.hidden = false;
+    grid.innerHTML = '<div class="dashboard-loading">Загрузка цен...</div>';
+    const prices = {};
+    const promises = COINS.map(async (coin) => {
+      try {
+        const r = await fetch(`${API_BASE}/price/${coin}`, withAuth());
+        if (r.ok) { const d = await r.json(); prices[coin] = d.price; }
+      } catch { /* ignore */ }
+    });
+    await Promise.all(promises);
+    grid.innerHTML = "";
+    COINS.forEach(coin => {
+      const price = prices[coin];
+      const tile = document.createElement("div");
+      tile.className = "dash-tile";
+      tile.innerHTML = `
+        <div class="dash-coin">${coin}</div>
+        <div class="dash-price">${price != null ? fmtPrice(price) : "—"}</div>
+      `;
+      tile.addEventListener("click", () => {
+        state.coin = coin;
+        const row = $("coin-row");
+        row.querySelectorAll(".chip").forEach(c => c.classList.toggle("active", c.dataset.value === coin));
+        section.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+      grid.appendChild(tile);
+    });
+  }
+
+  // --- Liquidations display ---
+  function renderLiquidations(data) {
+    const card = $("liquidations-card");
+    if (!card) return;
+    if (!data) { card.hidden = true; return; }
+    card.hidden = false;
+    const kv = $("liquidations-kv");
+    kv.innerHTML = "";
+    const rows = [];
+    if (data.taker_buy_sell_ratio != null) {
+      const r = data.taker_buy_sell_ratio;
+      const cls = r > 1.15 ? "long" : r < 0.85 ? "short" : "";
+      const lbl = r > 1.15 ? "покупатели" : r < 0.85 ? "продавцы" : "баланс";
+      rows.push(["Taker B/S ratio", `${r.toFixed(4)} (${lbl})`, cls]);
+    }
+    if (data.buy_pct != null) {
+      rows.push(["Покупки / Продажи", `${data.buy_pct}% / ${data.sell_pct}%`, ""]);
+    }
+    if (data.avg_ratio_5h != null) {
+      rows.push(["Средний ratio 5ч", data.avg_ratio_5h.toFixed(4), ""]);
+    }
+    if (!rows.length) { card.hidden = true; return; }
+    rows.forEach(([k, v, cls]) => {
+      const kEl = document.createElement("div");
+      kEl.className = "k";
+      kEl.textContent = k;
+      const vEl = document.createElement("div");
+      vEl.className = "v " + (cls || "");
+      vEl.textContent = v;
+      kv.appendChild(kEl);
+      kv.appendChild(vEl);
+    });
+  }
+
   function setupThemeToggle() {
     const btn = $("theme-toggle");
     if (!btn) return;
@@ -1864,6 +2057,8 @@
     checkHealth();
     loadContext();
     renderWatches();
+    renderTradeHistory();
+    loadDashboard();
     if (watches.length > 0) {
       startPolling();
       syncWatchesToServer();

@@ -293,3 +293,51 @@ def fetch_analytics(coin: str) -> dict | None:
         _cache.set(cache_key, result)
         return result
     return None
+
+
+# ---- Liquidations (Binance Futures) --------------------------------------
+
+def fetch_liquidations(coin: str) -> dict | None:
+    """Fetch recent forced liquidation stats from Binance Futures.
+
+    Uses /futures/data/globalLongShortAccountRatio as a proxy for
+    liquidation pressure — no separate liquidations endpoint on public API.
+    Instead we use forceOrders which returns recent liquidation events.
+    """
+    symbol = _ANALYTICS_SYMBOLS.get(coin)
+    if not symbol:
+        return None
+    cache_key = f"liquidations:{coin}"
+    cached = _cache.get(cache_key, ttl=300)
+    if cached is not None:
+        return cached
+    result: dict[str, Any] = {}
+    try:
+        with httpx.Client(timeout=10) as c:
+            r = c.get(
+                "https://fapi.binance.com/futures/data/takerlongshortRatio",
+                params={"symbol": symbol, "period": "1h", "limit": "5"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                if data:
+                    latest = data[-1]
+                    buy_vol = float(latest.get("buyVol", 0))
+                    sell_vol = float(latest.get("sellVol", 0))
+                    ratio = float(latest.get("buySellRatio", 1.0))
+                    result["taker_buy_vol"] = buy_vol
+                    result["taker_sell_vol"] = sell_vol
+                    result["taker_buy_sell_ratio"] = ratio
+                    total = buy_vol + sell_vol
+                    if total > 0:
+                        result["buy_pct"] = round(buy_vol / total * 100, 1)
+                        result["sell_pct"] = round(sell_vol / total * 100, 1)
+                    if len(data) >= 3:
+                        avg_ratio = sum(float(d.get("buySellRatio", 1.0)) for d in data) / len(data)
+                        result["avg_ratio_5h"] = round(avg_ratio, 4)
+    except Exception as e:  # noqa: BLE001
+        log.warning("Liquidations fetch failed for %s: %s", coin, e)
+    if result:
+        _cache.set(cache_key, result)
+        return result
+    return None
