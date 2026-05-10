@@ -2149,6 +2149,12 @@ h1 {
   align-items: center;
   justify-content: center;
   animation: lockout-fade-in 0.5s var(--easing);
+  /* Stop swipes from scrolling/bouncing the page underneath on mobile.
+     Combined with the body-scroll lock in JS this keeps Snake playable. */
+  touch-action: none;
+  overscroll-behavior: contain;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
 }
 .lockout-overlay[hidden] {
   display: none;
@@ -2207,6 +2213,17 @@ h1 {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-soft);
   background: #0a0a0a;
+  /* Without this the browser treats vertical swipes on the canvas as page
+     scroll on mobile, which both moves the page underneath AND swallows
+     the swipe so the snake never turns. */
+  touch-action: none;
+  /* Cap to the available width on small phones where the 320px DOM width
+     would otherwise overflow the lockout card. CSS keeps the aspect ratio. */
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  -webkit-user-select: none;
+  user-select: none;
 }
 :root[data-theme="light"] #snake-canvas {
   background: #f0f0f0;

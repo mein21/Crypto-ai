@@ -82,11 +82,40 @@
   }
 
   let lockoutCountdownTimer = null;
+  let lockoutScrollY = 0;
+
+  // Lock body scroll when the lockout overlay is open. Without this, swipes on
+  // the dark backdrop (and on the snake canvas, which is what the user is
+  // trying to control) bleed through and scroll the page underneath, making
+  // the mini-game unplayable on phones. Use the iOS-friendly fixed-position
+  // pattern so the original scroll position is restored on close.
+  function lockBodyScroll() {
+    if (document.body.dataset.lockoutScrollLock === "1") return;
+    lockoutScrollY = window.scrollY || window.pageYOffset || 0;
+    document.body.dataset.lockoutScrollLock = "1";
+    document.body.style.position = "fixed";
+    document.body.style.top = `-${lockoutScrollY}px`;
+    document.body.style.left = "0";
+    document.body.style.right = "0";
+    document.body.style.width = "100%";
+  }
+
+  function unlockBodyScroll() {
+    if (document.body.dataset.lockoutScrollLock !== "1") return;
+    delete document.body.dataset.lockoutScrollLock;
+    document.body.style.position = "";
+    document.body.style.top = "";
+    document.body.style.left = "";
+    document.body.style.right = "";
+    document.body.style.width = "";
+    window.scrollTo(0, lockoutScrollY);
+  }
 
   function activateLockout() {
     const overlay = $("lockout-overlay");
     if (!overlay) return;
     overlay.hidden = false;
+    lockBodyScroll();
     startLockoutCountdown();
   }
 
@@ -98,6 +127,7 @@
       lockoutCountdownTimer = null;
     }
     stopSnake();
+    unlockBodyScroll();
   }
 
   function startLockoutCountdown() {
@@ -217,38 +247,97 @@
   function setupSnakeControls() {
     document.addEventListener("keydown", (e) => {
       if (!snakeState || !snakeState.running) return;
+      let handled = true;
       switch (e.key) {
         case "ArrowUp": case "w": if (snakeState.dy !== 1) { snakeState.dx = 0; snakeState.dy = -1; } break;
         case "ArrowDown": case "s": if (snakeState.dy !== -1) { snakeState.dx = 0; snakeState.dy = 1; } break;
         case "ArrowLeft": case "a": if (snakeState.dx !== 1) { snakeState.dx = -1; snakeState.dy = 0; } break;
         case "ArrowRight": case "d": if (snakeState.dx !== -1) { snakeState.dx = 1; snakeState.dy = 0; } break;
+        default: handled = false;
       }
+      if (handled) e.preventDefault();
     });
     const startBtn = $("snake-start-btn");
     if (startBtn) startBtn.addEventListener("click", startSnake);
 
-    // Touch controls for mobile
+    // Touch controls for mobile.
+    //
+    // Two critical bits here:
+    //   1. `passive: false` on touchstart/touchmove + `preventDefault()` so
+    //      the page underneath does NOT scroll while the user is trying to
+    //      swipe-control the snake. This was the main reason the game was
+    //      "unplayable" — the browser was eating the swipe as a page scroll.
+    //   2. The swipe threshold is checked against the start of THIS gesture,
+    //      and we re-baseline `touchStart{X,Y}` only after we successfully
+    //      register a direction change. That makes a single sustained swipe
+    //      register *one* clean direction change instead of jittering, and
+    //      lets the user chain consecutive direction changes within one
+    //      finger-down without lifting.
+    const SWIPE_THRESHOLD = 14;
     let touchStartX = 0, touchStartY = 0;
     const canvas = $("snake-canvas");
     if (canvas) {
       canvas.addEventListener("touchstart", (e) => {
+        if (!e.touches[0]) return;
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
+        // Do NOT preventDefault here — we want the synthetic click to still
+        // fire on a stationary tap so the D-pad fallback works. The actual
+        // page-scroll prevention is handled by `touch-action: none` in CSS
+        // and by preventDefault on touchmove below.
       }, { passive: true });
       canvas.addEventListener("touchmove", (e) => {
+        // Always preventDefault on canvas touchmove so the page can never
+        // scroll while the finger is on the snake field, even before the
+        // game has been started.
+        e.preventDefault();
         if (!snakeState || !snakeState.running) return;
+        if (!e.touches[0]) return;
         const dx = e.touches[0].clientX - touchStartX;
         const dy = e.touches[0].clientY - touchStartY;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          if (dx > 20 && snakeState.dx !== -1) { snakeState.dx = 1; snakeState.dy = 0; }
-          else if (dx < -20 && snakeState.dx !== 1) { snakeState.dx = -1; snakeState.dy = 0; }
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+        if (Math.max(absDx, absDy) < SWIPE_THRESHOLD) return;
+        let changed = false;
+        if (absDx > absDy) {
+          if (dx > 0 && snakeState.dx !== -1) { snakeState.dx = 1; snakeState.dy = 0; changed = true; }
+          else if (dx < 0 && snakeState.dx !== 1) { snakeState.dx = -1; snakeState.dy = 0; changed = true; }
         } else {
-          if (dy > 20 && snakeState.dy !== -1) { snakeState.dx = 0; snakeState.dy = 1; }
-          else if (dy < -20 && snakeState.dy !== 1) { snakeState.dx = 0; snakeState.dy = -1; }
+          if (dy > 0 && snakeState.dy !== -1) { snakeState.dx = 0; snakeState.dy = 1; changed = true; }
+          else if (dy < 0 && snakeState.dy !== 1) { snakeState.dx = 0; snakeState.dy = -1; changed = true; }
         }
-        touchStartX = e.touches[0].clientX;
-        touchStartY = e.touches[0].clientY;
-      }, { passive: true });
+        if (changed) {
+          // Re-baseline so the next direction in the same gesture is measured
+          // from the current finger position rather than from where the
+          // gesture originally started.
+          touchStartX = e.touches[0].clientX;
+          touchStartY = e.touches[0].clientY;
+        }
+      }, { passive: false });
+
+
+      // On-screen D-pad fallback: tapping each edge of the canvas turns the
+      // snake that way. Helps users who can't reliably swipe (e.g. small
+      // screens, big fingers, or anyone who tried swiping and got page
+      // scroll the first time and gave up).
+      canvas.addEventListener("click", (e) => {
+        if (!snakeState || !snakeState.running) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const w = rect.width;
+        const h = rect.height;
+        // Diagonal split: pick the closest edge.
+        const left = x;
+        const right = w - x;
+        const top = y;
+        const bot = h - y;
+        const min = Math.min(left, right, top, bot);
+        if (min === left && snakeState.dx !== 1) { snakeState.dx = -1; snakeState.dy = 0; }
+        else if (min === right && snakeState.dx !== -1) { snakeState.dx = 1; snakeState.dy = 0; }
+        else if (min === top && snakeState.dy !== 1) { snakeState.dx = 0; snakeState.dy = -1; }
+        else if (min === bot && snakeState.dy !== -1) { snakeState.dx = 0; snakeState.dy = 1; }
+      });
     }
   }
 
