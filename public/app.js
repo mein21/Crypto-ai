@@ -343,6 +343,228 @@
 
   const $ = (id) => document.getElementById(id);
 
+  // --- Glossary / clickable term explanations ----------------------------
+  //
+  // Maps trading / TA terms (lowercased) to a short Russian explanation that
+  // pops up when the user clicks the label. Keys are matched against the
+  // visible label text after `.toLowerCase().trim()` — so "Profit factor"
+  // and "profit factor" both resolve to the same entry.
+  const GLOSSARY = {
+    // Walk-forward backtest card
+    "walk-forward стратегии": "Walk-forward бэктест: проигрываем правила-фоллбэк (упрощённая стратегия без LLM) на последних 200 барах текущего ТФ. На каждом баре считаем индикаторы только по прошлым данным (без подгляда в будущее), генерируем сигнал, симулируем сделку с фиксированными SL/TP в ATR-единицах, идём вперёд по OHLC и фиксируем результат.",
+    "сделок": "Общее число сделок, которые правила фоллбэка сгенерировали на ретроспективе. Чем больше — тем достовернее статистика. Ниже 20 сделок — выборка слишком маленькая.",
+    "winrate": "Доля прибыльных сделок (TP > SL). Сама по себе не имеет смысла без R:R. При R:R = 2.0 точка безубыточности — winrate ≈ 33%; при R:R = 1.0 — 50%.",
+    "profit factor": "Отношение суммы прибылей к сумме убытков (в R-единицах). PF > 1 — стратегия зарабатывает, > 1.3 — хорошо, < 1 — теряет.",
+    "avg r:r": "Средний реализованный risk-reward выигрышных сделок: сколько R получили в среднем при выигрыше. Целевой R:R задан в настройках (сейчас 2.0×ATR), реальный обычно ниже из-за выходов по EMA-кроссу и тайм-стопу.",
+    "expectancy": "Математическое ожидание одной сделки в R: P(win)×AvgWin − P(loss)×AvgLoss. Положительное → стратегия в плюсе на длинной дистанции, отрицательное → теряет.",
+    "l / s": "Соотношение лонг- / шорт-сигналов в выборке. Перекос объясним: если на ТФ доминирует один тренд, фильтр пропускает только сделки в его сторону.",
+    "окно": "Число баров, на которых прогонялся бэктест (lookback). По умолчанию 200 свечей текущего ТФ.",
+
+    // Sentiment composite card
+    "sentiment composite": "Композитный сентимент 0–100: смесь Fear&Greed индекса крипторынка, тональности свежих новостей и моментума за последние сутки. <40 — медвежий, >60 — бычий, между — нейтральный.",
+    "f&g": "Fear & Greed Index с alternative.me (0 — экстремальный страх, 100 — экстремальная жадность). Считается из волатильности, объёмов, доминации BTC, соцсетей и опросов. Обновляется раз в сутки.",
+    "новости": "Тональность заголовков из RSS Cointelegraph по конкретной монете: подсчитываем упоминания позитивных и негативных слов и нормируем 0–100.",
+    "моментум 1d": "Изменение цены за последние 24 часа, нормированное в 0–100 относительно типичного 1d-движения. Быстрый импульсный замер.",
+    "слова": "Сводка по словам в заголовках новостей: сколько бычьих и медвежьих упоминаний нашлось в N последних статьях.",
+
+    // Multi-TF alignment card
+    "multi-tf alignment": "Согласованность тренда по нескольким таймфреймам (15m / 1h / 4h / 1d). Считаем направление и силу на каждом ТФ, взвешиваем (старшие ТФ имеют больший вес) и получаем единый счёт 0–100. Высокий + однонаправленный → больше уверенность.",
+
+    // Indicators card
+    "rsi": "Relative Strength Index 14: осциллятор перекупленности 0–100. >70 — перекуплено (риск разворота вниз), <30 — перепродано. RSI 50 — нейтрально. Дивергенции с ценой — ранний сигнал слабости тренда.",
+    "macd": "Moving Average Convergence Divergence: разница быстрой EMA(12) и медленной EMA(26), плюс сигнальная линия EMA(9) и гистограмма. Кросс MACD над сигналом + хист > 0 = бычий импульс. Кросс ниже = медвежий.",
+    "ema": "Exponential Moving Average — экспоненциальная скользящая средняя. EMA20 — краткосрочный тренд, EMA50 — среднесрочный, EMA200 — долгосрочный. EMA20>EMA50>EMA200 = устойчивый аптренд.",
+    "bollinger": "Полосы Боллинджера: SMA(20) ± 2σ. Цена у верхней полосы — перекуплено, у нижней — перепродано. Сжатие полос (squeeze) — затишье перед движением, расширение — высокая волатильность.",
+    "adx": "Average Directional Index 14: сила тренда без направления, 0–100. <20 — боковик / chop, в нём тренд-фолловинг не работает. 20–25 — формирование, >25 — сильный тренд, >40 — очень сильный.",
+    "atr": "Average True Range 14: средний истинный диапазон за бар. Универсальная мера волатильности, используется для размера стопа (SL = entry − 1×ATR) и тейка (TP = entry + 2×ATR).",
+    "bb верх": "Верхняя полоса Боллинджера (SMA20 + 2σ). Цена у/выше неё — статистически перекуплено.",
+    "bb низ": "Нижняя полоса Боллинджера (SMA20 − 2σ). Цена у/ниже неё — статистически перепродано.",
+
+    // Trade idea card
+    "торговая идея": "Сводка торговой рекомендации: направление, цена входа, стоп-лосс, тейк-профиты и уровень уверенности модели.",
+    "направление": "Сторона сделки: LONG (рассчитываем на рост), SHORT (на падение), FLAT (вне рынка — сигнала нет).",
+    "вход": "Рекомендуемая цена входа. Тип входа (Market / Limit / По пробою) показан рядом значком.",
+    "stop-loss": "Цена защитного стопа: если рынок дойдёт до неё, сделка закрывается с убытком, чтобы он не разрастался. Обычно ставится на 1×ATR от входа.",
+    "take-profit 1": "Первая цель прибыли. На ней разумно зафиксировать ~50% позиции и подтянуть стоп в безубыток.",
+    "take-profit 2": "Вторая, дальняя цель прибыли. Туда добегает реже, но если добежала — делает основной P&L.",
+    "уверенность": "Оценка модели от 0% до 100%, насколько она уверена в этом сценарии. >70% — высокая уверенность, 40–60% — средняя, <40% — низкая, лучше пропустить.",
+
+    // Volume profile card
+    "volume profile": "Профиль объёма: распределение торгового объёма по ценовым уровням за окно. POC = цена с максимальным объёмом, VAH/VAL — границы зоны 70% объёма. HVN — пики, LVN — пустоты.",
+    "poc": "Point Of Control: ценовой уровень с наибольшим объёмом за окно. Сильный магнит / зона интереса крупных игроков.",
+    "vah": "Value Area High — верхняя граница зоны, в которой прошло 70% объёма.",
+    "val": "Value Area Low — нижняя граница зоны 70% объёма. Поход цены за пределы [VAL; VAH] — признак тренда.",
+    "позиция": "Где находится текущая цена относительно value area: внутри (баланс), выше (растущий дисбаланс) или ниже (падающий дисбаланс).",
+    "δ к poc": "Разница в процентах между текущей ценой и POC. Расстояние до магнита.",
+    "hvn": "High Volume Node: ценовой уровень с локально высоким объёмом. Часто работает как поддержка/сопротивление.",
+    "lvn": "Low Volume Node: уровень с локально низким объёмом. Цена через них «пролетает» быстро — слабая зона интереса.",
+
+    // Order flow card
+    "order flow (cvd)": "Order Flow приближённый из OHLCV (без реальной книги стаканов). CVD — кумулятивная дельта объёма (покупки − продажи). Дивергенция CVD с ценой = сигнал ослабления тренда.",
+    "cvd": "Cumulative Volume Delta: накопленная разница между объёмом на покупку и на продажу. Растёт → доминируют покупатели, падает → продавцы.",
+    "наклон": "Скорость изменения CVD за последние свечи. Положительный — приток покупателей, отрицательный — продавцов.",
+    "давление покупок": "Доля покупок в общем объёме за окно, в процентах. >50% — покупатели агрессивнее, <50% — продавцы.",
+    "дивергенция": "Расхождение цены и CVD: цена делает новый максимум, а CVD — нет (бычья ловушка → возможен разворот вниз) или наоборот (медвежья ловушка).",
+
+    // Analytics card (futures)
+    "аналитические центры": "Метрики с фьючерсной биржи Binance Futures: funding rate, открытый интерес и соотношение лонгов / шортов трейдеров.",
+    "funding rate": "Ставка фондирования на бессрочных фьючерсах: лонги платят шортам (или наоборот) каждые 8ч. Положительный → перекос в лонги (риск ликвидаций сверху), отрицательный → в шорты.",
+    "open interest": "Open Interest — суммарный объём открытых позиций по фьючерсам. Рост OI + рост цены = устойчивый тренд. Падение OI = закрытие позиций, тренд может выдыхаться.",
+    "l/s ratio": "Long/Short ratio — отношение количества аккаунтов в лонге к шортам. >1.2 — толпа в лонге (часто контр-индикатор), <0.8 — толпа в шорте.",
+    "лонги / шорты": "Доля аккаунтов в лонг- и шорт-позициях, в процентах.",
+
+    // Liquidations card
+    "давление ликвидаций": "Аппроксимация давления ликвидаций через Taker Buy/Sell ratio: какая доля рыночных ордеров была агрессивными покупками или продажами.",
+    "taker b/s ratio": "Отношение объёма агрессивных покупок (taker buy) к агрессивным продажам (taker sell). >1.15 — давят покупатели, <0.85 — продавцы.",
+    "покупки / продажи": "Доля агрессивных покупок и продаж в общем объёме taker-ордеров.",
+    "средний ratio 5ч": "Среднее значение Taker B/S за последние 5 часов — сглаженный тренд давления.",
+
+    // Fear & Greed card
+    "индекс страха и жадности": "Сводный индекс настроения крипторынка с alternative.me: 0 — экстремальный страх, 100 — экстремальная жадность. Контр-индикатор: экстремумы часто совпадают с разворотами.",
+    "корреляция vs btc за 30 дней": "Коэффициент корреляции Пирсона между log-доходностями монеты и BTC за 30 дней. 1.0 — идентичное движение, 0 — независимость, отрицательное — обратная связь. Помогает оценить, торгуется ли монета по своему сюжету или просто следует за биткоином.",
+
+    // On-chain card
+    "комиссии (sat/vb)": "Комиссии в сетях Bitcoin: sat/vB (сатоши за виртуальный байт). Три значения: fastest (попасть в следующий блок), 30 мин, 1 ч.",
+    "мемпул": "Bitcoin mempool — очередь неподтверждённых транзакций. Размер очереди и суммарный объём комиссий показывают загрузку сети.",
+    "хэшрейт": "Суммарная вычислительная мощность сети BTC (EH/s). Высокий хэшрейт = высокая безопасность сети и устойчивость от 51% атак.",
+    "сложность": "Сложность майнинга BTC: ретаргетится каждые 2016 блоков (~2 недели). +% указывает направление следующего ретаргета.",
+    "высота блока": "Номер последнего подтверждённого блока в цепи.",
+    "газ (gwei)": "Цена газа в Ethereum (gwei): сколько стоит каждая единица вычислений. Slow / standard / fast — три скоростных тарифа.",
+    "base fee": "Базовая комиссия EIP-1559 в gwei: автоматически растёт при перегрузке сети, сжигается, не достаётся валидаторам.",
+    "загрузка блоков": "Средняя заполненность последних 10 блоков ETH. >80% — сеть забита, >50% — повышенная активность.",
+
+    // Other
+    "новости по монете": "Свежие заголовки из RSS Cointelegraph по выбранной монете. Заголовки переведены на русский, помечены тональностью и оценкой влияния.",
+  };
+
+  let glossaryPopover = null;
+  let glossaryDismissHandlers = null;
+
+  function lookupGlossary(rawKey) {
+    if (!rawKey) return null;
+    const k = String(rawKey).toLowerCase().trim();
+    if (GLOSSARY[k]) return GLOSSARY[k];
+    // Tolerate trailing punctuation like "Сделок:" or "RSI."
+    const stripped = k.replace(/[:.,;]+$/, "").trim();
+    return GLOSSARY[stripped] || null;
+  }
+
+  function markTerm(el, label) {
+    if (!el) return;
+    const text = label != null ? label : el.textContent;
+    if (lookupGlossary(text) == null) return;
+    el.dataset.term = String(text).toLowerCase().trim();
+    el.classList.add("term");
+    el.setAttribute("role", "button");
+    el.setAttribute("tabindex", "0");
+    el.setAttribute("aria-label", `Что значит: ${text}`);
+  }
+
+  function closeGlossaryPopover() {
+    if (glossaryPopover && glossaryPopover.parentNode) {
+      glossaryPopover.parentNode.removeChild(glossaryPopover);
+    }
+    glossaryPopover = null;
+    if (glossaryDismissHandlers) {
+      document.removeEventListener("click", glossaryDismissHandlers.onDocClick, true);
+      document.removeEventListener("keydown", glossaryDismissHandlers.onKey, true);
+      window.removeEventListener("scroll", glossaryDismissHandlers.onScroll, true);
+      window.removeEventListener("resize", glossaryDismissHandlers.onScroll);
+      glossaryDismissHandlers = null;
+    }
+  }
+
+  function positionGlossaryPopover(target) {
+    if (!glossaryPopover || !target) return;
+    const rect = target.getBoundingClientRect();
+    const pop = glossaryPopover;
+    pop.style.visibility = "hidden";
+    pop.style.left = "0px";
+    pop.style.top = "0px";
+    const popRect = pop.getBoundingClientRect();
+    const margin = 8;
+    let left = rect.left + rect.width / 2 - popRect.width / 2;
+    left = Math.max(margin, Math.min(window.innerWidth - popRect.width - margin, left));
+    // Prefer below; flip above if no space.
+    let top = rect.bottom + 8;
+    if (top + popRect.height > window.innerHeight - margin) {
+      const aboveTop = rect.top - popRect.height - 8;
+      if (aboveTop >= margin) top = aboveTop;
+    }
+    pop.style.left = `${Math.round(left)}px`;
+    pop.style.top = `${Math.round(top)}px`;
+    pop.style.visibility = "visible";
+  }
+
+  function showGlossaryPopover(target) {
+    closeGlossaryPopover();
+    const term = target.dataset.term;
+    const text = lookupGlossary(term);
+    if (!text) return;
+    const pop = document.createElement("div");
+    pop.className = "glossary-popover";
+    pop.setAttribute("role", "dialog");
+    pop.innerHTML = `
+      <button class="glossary-popover-close" type="button" aria-label="Закрыть">×</button>
+      <div class="glossary-popover-title"></div>
+      <div class="glossary-popover-body"></div>
+    `;
+    pop.querySelector(".glossary-popover-title").textContent =
+      target.textContent.trim() || term;
+    pop.querySelector(".glossary-popover-body").textContent = text;
+    document.body.appendChild(pop);
+    glossaryPopover = pop;
+    positionGlossaryPopover(target);
+    pop.querySelector(".glossary-popover-close").addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeGlossaryPopover();
+    });
+    const onDocClick = (e) => {
+      if (pop.contains(e.target)) return;
+      // Clicking another term hands off; otherwise close.
+      const otherTerm = e.target.closest && e.target.closest("[data-term]");
+      if (otherTerm && otherTerm !== target) return;
+      closeGlossaryPopover();
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") closeGlossaryPopover();
+    };
+    const onScroll = () => positionGlossaryPopover(target);
+    document.addEventListener("click", onDocClick, true);
+    document.addEventListener("keydown", onKey, true);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onScroll);
+    glossaryDismissHandlers = { onDocClick, onKey, onScroll };
+  }
+
+  function setupGlossary() {
+    document.addEventListener("click", (e) => {
+      const t = e.target.closest && e.target.closest("[data-term]");
+      if (!t) return;
+      // Don't hijack interactive controls inside terms (e.g. links).
+      if (e.target.closest("a, button, input, textarea")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      showGlossaryPopover(t);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const t = document.activeElement;
+      if (!t || !t.dataset || !t.dataset.term) return;
+      e.preventDefault();
+      showGlossaryPopover(t);
+    });
+    // Pre-mark static H3 card headings declared in HTML via data-term.
+    document.querySelectorAll("h3[data-term]").forEach((el) => {
+      const term = el.dataset.term || el.textContent;
+      if (lookupGlossary(term)) {
+        el.classList.add("term");
+        el.setAttribute("role", "button");
+        el.setAttribute("tabindex", "0");
+      }
+    });
+  }
+
   function inferDevApiBase() {
     if (typeof window === "undefined") return "";
     const host = window.location.hostname;
@@ -699,6 +921,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      markTerm(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -760,6 +983,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      markTerm(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -833,6 +1057,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      markTerm(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -865,6 +1090,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      markTerm(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -916,6 +1142,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      markTerm(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -961,6 +1188,8 @@
         <div class="onchain-value">${value}</div>
         <div class="onchain-sub">${sub || ""}</div>
       `;
+      const labelEl = el.querySelector(".onchain-label");
+      markTerm(labelEl, label);
       grid.appendChild(el);
     };
     if (coin === "BTC" && onchain.btc) {
@@ -1083,6 +1312,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      markTerm(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -1138,7 +1368,9 @@
     Object.entries(indicatorsObj).forEach(([k, v]) => {
       const kEl = document.createElement("div");
       kEl.className = "k";
-      kEl.textContent = indLabels[k] || k;
+      const label = indLabels[k] || k;
+      kEl.textContent = label;
+      markTerm(kEl, label);
       const vEl = document.createElement("div");
       vEl.className = "v";
       vEl.textContent = v;
@@ -1155,6 +1387,7 @@
         const kEl = document.createElement("div");
         kEl.className = "k";
         kEl.textContent = k;
+        markTerm(kEl, k);
         const vEl = document.createElement("div");
         vEl.className = "v";
         vEl.textContent = v;
@@ -1238,6 +1471,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      markTerm(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -1888,6 +2122,7 @@
       const kEl = document.createElement("div");
       kEl.className = "k";
       kEl.textContent = k;
+      markTerm(kEl, k);
       const vEl = document.createElement("div");
       vEl.className = "v " + (cls || "");
       vEl.textContent = v;
@@ -1923,6 +2158,7 @@
 
   function init() {
     setupThemeToggle();
+    setupGlossary();
     renderFailedTradesWidget();
     setupFailedTradesClick();
     setupSnakeControls();

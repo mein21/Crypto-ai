@@ -2361,3 +2361,115 @@ h1 {
   .stat-value { font-size: 12px; }
   .history-main { font-size: 12px; }
 }
+
+/* --- Glossary / clickable term explanations ---------------------------- */
+
+[data-term].term {
+  cursor: help;
+  border-bottom: 1px dashed var(--border-strong, rgba(255, 255, 255, 0.22));
+  -webkit-text-decoration-skip-ink: none;
+  text-decoration-skip-ink: none;
+  position: relative;
+  padding-bottom: 1px;
+  transition: border-color 120ms ease, color 120ms ease;
+  user-select: none;
+}
+[data-term].term:hover,
+[data-term].term:focus-visible {
+  border-bottom-color: var(--accent, #fff);
+  color: var(--text-primary, #f5f5f5);
+}
+[data-term].term:focus-visible {
+  outline: 2px solid var(--accent-glow, rgba(255, 255, 255, 0.40));
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* Subtle info dot after the label so it's discoverable on dense kv grids. */
+.k[data-term].term::after,
+h3[data-term].term::after,
+.onchain-label[data-term].term::after {
+  content: "?";
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  width: 14px;
+  height: 14px;
+  text-align: center;
+  margin-left: 6px;
+  vertical-align: 1px;
+  border-radius: 50%;
+  background: var(--bg-surface-strong, rgba(28, 28, 28, 0.86));
+  color: var(--text-secondary, #b8b8b8);
+  border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.10));
+  opacity: 0.7;
+  transition: opacity 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+[data-term].term:hover::after,
+[data-term].term:focus-visible::after {
+  opacity: 1;
+  color: var(--accent, #fff);
+  border-color: var(--accent, #fff);
+}
+
+.glossary-popover {
+  position: fixed;
+  z-index: 9999;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px 14px;
+  border-radius: var(--radius-sm, 10px);
+  background: var(--bg-surface-strong, rgba(20, 20, 20, 0.97));
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.22));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.30);
+  color: var(--text-primary, #f5f5f5);
+  font-size: 13px;
+  line-height: 1.5;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: glossary-popover-in 120ms ease-out;
+}
+@keyframes glossary-popover-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.glossary-popover-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
+  padding-right: 22px;
+  color: var(--text-primary, #f5f5f5);
+}
+.glossary-popover-body {
+  color: var(--text-secondary, #b8b8b8);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.glossary-popover-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted, #888);
+  font-size: 18px;
+  line-height: 22px;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: background 120ms ease, color 120ms ease;
+}
+.glossary-popover-close:hover,
+.glossary-popover-close:focus-visible {
+  background: var(--accent-soft, rgba(255, 255, 255, 0.18));
+  color: var(--text-primary, #f5f5f5);
+  outline: none;
+}
+@media (max-width: 480px) {
+  .glossary-popover {
+    max-width: calc(100vw - 24px);
+    font-size: 13px;
+  }
+}
