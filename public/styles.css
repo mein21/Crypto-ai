@@ -193,7 +193,7 @@ body::after {
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-glow); background-clip: padding-box; }
 ::selection { background: var(--accent); color: var(--on-accent); }
 
-/* Top bar: balance + theme toggle (fixed top-right) */
+/* Top bar: failed trades + theme toggle (fixed top-right) */
 .top-bar {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
@@ -203,214 +203,19 @@ body::after {
   gap: 10px;
   z-index: 50;
 }
-
-/* Balance widget */
-.balance-widget {
-  position: relative;
-}
-.balance-display {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  background: var(--bg-surface-strong);
-  border: 1px solid var(--border-strong);
-  backdrop-filter: var(--blur-md);
-  -webkit-backdrop-filter: var(--blur-md);
-  box-shadow: var(--shadow-button);
-  cursor: pointer;
-  user-select: none;
-  transition: transform 0.15s var(--easing), border-color 0.2s var(--easing);
-  white-space: nowrap;
-}
-.balance-display:hover {
-  transform: translateY(-1px);
-  border-color: var(--border-accent);
-}
-.balance-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-.balance-value {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.balance-edit {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 240px;
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  background: var(--bg-surface-strong);
-  border: 1px solid var(--border-strong);
-  backdrop-filter: var(--blur-md);
-  -webkit-backdrop-filter: var(--blur-md);
-  box-shadow: var(--shadow-card);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  animation: fade-up 0.25s var(--easing) both;
-}
-
-/* Mobile: balance widget + edit form */
 @media (max-width: 480px) {
   .top-bar {
     gap: 8px;
     right: max(10px, env(safe-area-inset-right));
-  }
-  .balance-display {
-    padding: 6px 10px;
-    gap: 5px;
-  }
-  .balance-label {
-    font-size: 9px;
-  }
-  .balance-value {
-    font-size: 11px;
-  }
-  .balance-edit {
-    position: fixed;
-    top: auto;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    min-width: 100%;
-    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    padding: 20px 20px max(20px, env(safe-area-inset-bottom));
-    animation: slide-up 0.3s var(--easing) both;
-  }
-  .balance-input,
-  .risk-input {
-    font-size: 16px;
-    padding: 12px 14px;
-  }
-  .balance-save-btn,
-  .balance-cancel-btn {
-    padding: 12px 0;
-    font-size: 14px;
   }
 }
 @keyframes slide-up {
   from { opacity: 0; transform: translateY(100%); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.balance-overlay {
-  display: none;
-}
-@media (max-width: 480px) {
-  .balance-overlay.active {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 49;
-    animation: fade-in 0.2s var(--easing) both;
-  }
-}
 @keyframes fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
-}
-.balance-input,
-.risk-input {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
-  background: var(--bg-input);
-  color: var(--text-primary);
-  font-family: "JetBrains Mono", monospace;
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.2s var(--easing);
-}
-.balance-input:focus,
-.risk-input:focus {
-  border-color: var(--border-accent);
-}
-.balance-input::-webkit-inner-spin-button,
-.balance-input::-webkit-outer-spin-button,
-.risk-input::-webkit-inner-spin-button,
-.risk-input::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-.balance-input[type="number"],
-.risk-input[type="number"] {
-  -moz-appearance: textfield;
-}
-
-.balance-risk-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.balance-risk-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  min-width: 50px;
-}
-.balance-risk-row .risk-input {
-  flex: 1;
-}
-
-.balance-actions {
-  display: flex;
-  gap: 8px;
-}
-.balance-save-btn,
-.balance-cancel-btn {
-  flex: 1;
-  padding: 7px 0;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s var(--easing), border-color 0.15s var(--easing);
-}
-.balance-save-btn {
-  background: var(--accent);
-  color: var(--on-accent);
-  border-color: transparent;
-}
-.balance-save-btn:hover {
-  opacity: 0.85;
-}
-.balance-cancel-btn {
-  background: transparent;
-  color: var(--text-secondary);
-}
-.balance-cancel-btn:hover {
-  border-color: var(--border-accent);
-}
-
-/* Position size row inside trade idea card */
-.risk-info {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border-soft);
-}
-.risk-info .k {
-  color: var(--text-muted);
-}
-.risk-warn-negative {
-  grid-column: 1 / -1;
-  font-size: 12px;
-  color: #ef4444;
-  padding: 6px 10px;
-  margin-top: 6px;
-  border-radius: var(--radius-sm);
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.25);
 }
 
 /* Floating theme toggle. Mirrors the crypto-assistant button. */
@@ -1635,12 +1440,6 @@ h1 {
 
 /* Very small phones (≤380px, e.g. iPhone SE 1st gen) */
 @media (max-width: 380px) {
-  .balance-label {
-    display: none;
-  }
-  .balance-value {
-    font-size: 10px;
-  }
   .app {
     padding-left: max(14px, env(safe-area-inset-left));
     padding-right: max(14px, env(safe-area-inset-right));
