@@ -1,0 +1,10 @@
+# local secrets / state / logs
+.env
+*.log
+*.log.*
+bot_state.json
+bot_state.json.tmp
+bot_state.json.*
+__pycache__/
+*.pyc
+.pytest_cache/
